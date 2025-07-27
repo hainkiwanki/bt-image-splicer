@@ -206,6 +206,7 @@ async function sliceImage() {
         }
     };
 }
+
 function resetView(): void {
     zoom.value = 1;
     offsetX.value = 0;
@@ -243,13 +244,21 @@ function onCanvasMouseUp(): void {
     max-height: 80vh;
     margin-top: 2rem;
     border: 1px solid #ddd;
+    border: 2px dashed #ccc;
+    border-radius: 8px;
     overflow: auto;
+    transition: border-color 0.3s ease;
+
+    &:hover {
+        border-color: #1976d2;
+    }
 }
 
 .preview-canvas {
     display: block;
     height: auto;
     max-width: 100%;
+    transition: transform 0.3s ease;
 }
 
 .skipped-overlay {
@@ -257,5 +266,19 @@ function onCanvasMouseUp(): void {
     border: 1px solid orange;
     background: rgb(255 255 0 / 30%);
     pointer-events: auto;
+}
+
+.v-btn {
+    transition: background-color 0.2s ease;
+
+    &:hover {
+        background-color: #1976d2 !important;
+        color: white;
+    }
+}
+
+/* stylelint-disable-next-line selector-class-pattern */
+.v-progress-linear__bar {
+    transition: width 0.4s ease-in-out;
 }
 </style>
