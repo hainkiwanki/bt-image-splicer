@@ -19,6 +19,9 @@
                     <v-col cols="12" md="6">
                         <v-select v-model="exportFormat" :items="['png', 'jpeg']" label="Export Format" />
                     </v-col>
+                    <v-col cols="12" md="6">
+                        <v-text-field v-model="filenamePrefix" label="Filename Prefix" />
+                    </v-col>
                 </v-row>
 
                 <v-progress-linear v-if="loading" :model-value="progressValue" :value="progressValue" :buffer-value="progressBufferValue" color="primary" height="6" class="mb-4" />
@@ -60,6 +63,7 @@ const skippedTiles = ref<number[]>([]);
 const skippedTilesPositions = ref<{ x: number; y: number; h: number; w: number }[]>([]);
 const progressValue = ref(0);
 const progressBufferValue = ref(0);
+const filenamePrefix = ref('slice');
 
 async function handleFileUpload(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
@@ -163,6 +167,7 @@ async function sliceImage() {
 
             for (let i = 0; i < cols.value * rows.value; i++) {
                 if (emptyIndices.includes(i)) continue;
+                zip.file(`${filenamePrefix.value}-${i + 1}.${exportFormat.value}`, slices[sliceIndex]);
                 zip.file(`slice-${i + 1}.${exportFormat.value}`, slices[sliceIndex]);
                 sliceIndex++;
             }

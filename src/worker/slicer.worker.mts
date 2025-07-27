@@ -5,11 +5,8 @@ export interface SliceRequest {
     format: 'png' | 'jpeg';
 }
 
-self.onmessage = async (
-    e: MessageEvent<SliceRequest>
-) => {
-    const { imageData, cols, rows, format } =
-        e.data;
+self.onmessage = async (e: MessageEvent<SliceRequest>) => {
+    const { imageData, cols, rows, format } = e.data;
     const { width, height } = imageData;
 
     const area = {
@@ -21,10 +18,7 @@ self.onmessage = async (
     const tileW = area.w / cols;
     const tileH = area.h / rows;
 
-    const offscreen = new OffscreenCanvas(
-        width,
-        height
-    );
+    const offscreen = new OffscreenCanvas(width, height);
     const ctx = offscreen.getContext('2d')!;
     ctx.putImageData(imageData, 0, 0);
 
@@ -35,29 +29,12 @@ self.onmessage = async (
 
     for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
-            const sliceCanvas =
-                new OffscreenCanvas(tileW, tileH);
-            const sliceCtx =
-                sliceCanvas.getContext('2d')!;
+            const sliceCanvas = new OffscreenCanvas(tileW, tileH);
+            const sliceCtx = sliceCanvas.getContext('2d')!;
 
-            sliceCtx.drawImage(
-                offscreen,
-                area.x + col * tileW,
-                area.y + row * tileH,
-                tileW,
-                tileH,
-                0,
-                0,
-                tileW,
-                tileH
-            );
+            sliceCtx.drawImage(offscreen, area.x + col * tileW, area.y + row * tileH, tileW, tileH, 0, 0, tileW, tileH);
 
-            const pixels = sliceCtx.getImageData(
-                0,
-                0,
-                tileW,
-                tileH
-            ).data;
+            const pixels = sliceCtx.getImageData(0, 0, tileW, tileH).data;
             if (isEmpty(pixels)) {
                 emptyIndices.push(count);
                 count++;
@@ -71,13 +48,9 @@ self.onmessage = async (
                 continue;
             }
 
-            const blob =
-                await sliceCanvas.convertToBlob({
-                    type:
-                        format === 'jpeg'
-                            ? 'image/jpeg'
-                            : 'image/png',
-                });
+            const blob = await sliceCanvas.convertToBlob({
+                type: format === 'jpeg' ? 'image/jpeg' : 'image/png',
+            });
 
             results.push(blob);
 
@@ -98,9 +71,7 @@ self.onmessage = async (
     });
 };
 
-function isEmpty(
-    data: Uint8ClampedArray
-): boolean {
+function isEmpty(data: Uint8ClampedArray): boolean {
     for (let i = 0; i < data.length; i += 4) {
         const alpha = data[i + 3];
         if (alpha !== 0) return false;
