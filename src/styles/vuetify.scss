@@ -1,7 +1,7 @@
-@use 'vuetify/styles' with (
-    $body-font-family: 'Roboto, sans-serif'
+@use "vuetify/styles" with (
+    $body-font-family: "Roboto, sans-serif"
 );
 
 body {
-    font-family: 'Roboto', sans-serif !important;
+    font-family: "Roboto", sans-serif !important;
 }

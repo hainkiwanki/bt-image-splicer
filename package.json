@@ -1,7 +1,7 @@
 {
     "name": "bt-image-splicer",
     "private": true,
-    "version": "0.0.0",
+    "version": "0.3.0",
     "type": "module",
     "scripts": {
         "dev": "vite",
@@ -12,6 +12,7 @@
         "fix:style": "stylelint \"src/**/*.{vue,scss,css}\" --fix"
     },
     "dependencies": {
+        "jszip": "^3.10.1",
         "vue": "^3.5.17",
         "vue-router": "^4.5.1",
         "vuetify": "^3.9.2"
