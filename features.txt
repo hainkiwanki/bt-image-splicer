@@ -1,0 +1,22 @@
+Next logical step: individual slice selection before exporting. You’d be able to click (or toggle) tiles on the grid to mark which ones to include in the export. Here’s what it includes:
+✅ Features to implement:
+Click on a tile to toggle its selected/unselected state.
+Only selected tiles get exported (or all if none are selected).
+Visual indicator for selected tiles (e.g. blue overlay with tooltip).
+Clear selection/reset selection option.
+
+
+
+
+Next up: implement slice preview thumbnails before download.
+Plan:
+After slicing is complete, display thumbnails of non-empty tiles before downloading.
+Add a “Download ZIP” button to trigger export.
+Optionally allow deselecting specific thumbnails.
+Implementation outline:
+Store preview blobs in a slices ref after slicing.
+Render them in a <v-row> with <v-img> or <img> for preview.
+Add checkboxes if you want manual deselection before export.
+Button “Download ZIP” replaces immediate download after slicing.
+
+

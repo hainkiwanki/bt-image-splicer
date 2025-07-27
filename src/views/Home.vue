@@ -4,7 +4,7 @@
             <v-container>
                 <h1 class="text-h4 mb-4">Image Splicer</h1>
 
-                <v-file-input label="Upload Image" accept="image/*" chips @change="handleFileUpload" counter v-model="refFiles">
+                <v-file-input label="Upload Image" accept="image/*" chips @change="handleFileUpload" counter v-model="refFiles" multiple>
                     <template v-slot:selection="{ fileNames }">
                         <template v-for="(fileName, index) in fileNames" :key="fileName">
                             <v-chip v-if="index < 2" class="me-2" color="primary" size="small" label>
@@ -16,20 +16,31 @@
                     </template>
                 </v-file-input>
 
-                <v-row dense class="mb-2" align="center">
+                <v-row v-if="selectedImage" dense class="mb-2" align="center">
                     <v-col cols="6" md="3">
-                        <v-text-field label="Columns" type="number" v-model.number="cols" />
+                        <v-text-field label="Columns" type="number" :model-value="imageSettings[selectedImage.name]?.cols ?? cols" @update:model-value="updateImageSetting('cols', $event as unknown as number)" />
                     </v-col>
                     <v-col cols="6" md="3">
-                        <v-text-field label="Rows" type="number" v-model.number="rows" />
+                        <v-text-field label="Rows" type="number" :model-value="imageSettings[selectedImage.name]?.rows ?? rows" @update:model-value="updateImageSetting('rows', $event as unknown as number)" />
                     </v-col>
                     <v-col cols="12" md="3">
-                        <v-select v-model="exportFormat" :items="['png', 'jpeg']" label="Export Format" />
+                        <v-select label="Export Format" :items="['png', 'jpeg']" :model-value="imageSettings[selectedImage.name]?.format ?? exportFormat" @update:model-value="updateImageSetting('format', $event)" />
                     </v-col>
                     <v-col cols="12" md="3">
                         <v-text-field label="Filename Prefix" v-model="filenamePrefix" />
                     </v-col>
                 </v-row>
+
+                <v-row dense class="mb-3" v-if="loadedImages.length > 1">
+                    <v-col cols="6" md="6">
+                        <v-select label="Select Image" :items="loadedImages" item-title="name" :item-value="(item) => item" v-model="selectedImage" />
+                    </v-col>
+                    <v-col cols="6" md="6">
+                        <v-switch v-model="exportOnlySelected" :label="`Export only ${selectedImage?.name} - ${selectedImage?.width}×${selectedImage?.height}`" />
+                    </v-col>
+                </v-row>
+
+                <v-progress-linear v-if="loading" :model-value="progressValue" :value="progressValue" :buffer-value="progressBufferValue" color="primary" height="6" class="mb-4" />
 
                 <v-row dense class="mb-4">
                     <v-col cols="12" md="6">
@@ -40,10 +51,8 @@
                     </v-col>
                 </v-row>
 
-                <v-progress-linear v-if="loading" :model-value="progressValue" :value="progressValue" :buffer-value="progressBufferValue" color="primary" height="6" class="mb-4" />
-
                 <div class="canvas-wrapper">
-                    <canvas ref="canvasRef" class="preview-canvas" @wheel.passive="onWheel" @mousedown="onCanvasMouseDown" @mousemove="onCanvasMouseMove" @mouseup="onCanvasMouseUp" />
+                    <canvas ref="canvasRef" class="preview-canvas" @wheel="onWheel" @mousedown="onCanvasMouseDown" @mousemove="onCanvasMouseMove" @mouseup="onCanvasMouseUp" />
                     <div
                         v-if="!isPanning"
                         v-for="(tile, index) in skippedTilesPositions"
@@ -65,24 +74,56 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 import JSZip from 'jszip';
 
 import SlicerWorker from '@/worker/slicer.worker?worker';
 
+interface LoadedImage {
+    file: File;
+    image: HTMLImageElement;
+    name: string;
+    width: number;
+    height: number;
+}
+
+interface ImageSettings {
+    cols: number;
+    rows: number;
+    format: 'png' | 'jpeg';
+    zoom: number;
+    offsetX: number;
+    offsetY: number;
+}
+
+function getDefaultSettings(): ImageSettings {
+    return {
+        cols: cols.value,
+        rows: rows.value,
+        format: exportFormat.value,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0,
+    };
+}
+
 const canvasRef = ref<HTMLCanvasElement | null>(null);
-const image = ref<HTMLImageElement | null>(null);
-const cols = ref<number>(parseInt(localStorage.getItem('splicer-cols') || '3'));
-const rows = ref<number>(parseInt(localStorage.getItem('splicer-rows') || '3'));
+const cols = ref<number>(-1);
+const rows = ref<number>(-1);
 const exportFormat = ref<'png' | 'jpeg'>(localStorage.getItem('splicer-format') === 'jpeg' ? 'jpeg' : 'png');
 const loading = ref(false);
 const skippedTiles = ref<number[]>([]);
 const skippedTilesPositions = ref<{ x: number; y: number; h: number; w: number }[]>([]);
 const progressValue = ref(0);
 const progressBufferValue = ref(0);
-const filenamePrefix = ref<string>(localStorage.getItem('splicer-prefix') || 'slice-');
+const filenamePrefix = ref<string>(localStorage.getItem('splicer-prefix') || 'slice');
 const refFiles = ref([]);
+const loadedImages = ref<LoadedImage[]>([]);
+const selectedImage = ref<LoadedImage | null>(null);
+const currentImage = computed(() => selectedImage.value?.image || null);
+const exportOnlySelected = ref<boolean>(false);
+const imageSettings = ref<Record<string, ImageSettings>>({});
 
 const zoom = ref(1);
 const offsetX = ref(0);
@@ -90,67 +131,110 @@ const offsetY = ref(0);
 let isPanning = ref(false);
 let panStart = { x: 0, y: 0 };
 
-async function handleFileUpload(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const files = input.files;
-    if (!files?.length) {
-        return;
-    }
-    const file = files[0];
-    const img = new Image();
-
-    img.src = URL.createObjectURL(file);
-
-    await new Promise<void>((resolve) => {
-        img.onload = () => resolve();
-    });
-    image.value = img;
-    skippedTilesPositions.value = [];
-    skippedTiles.value = [];
+function updateImageSetting(key: 'cols' | 'rows' | 'format', value: number | 'png' | 'jpeg'): void {
+    if (!selectedImage.value) return;
+    const name = selectedImage.value.name;
+    imageSettings.value[name] = {
+        ...imageSettings.value[name],
+        [key]: value,
+    };
     drawGrid();
 }
 
-watch([cols, rows], drawGrid);
-watch(cols, (val) => localStorage.setItem('splicer-cols', val.toString()));
-watch(rows, (val) => localStorage.setItem('splicer-rows', val.toString()));
-watch(exportFormat, (val) => localStorage.setItem('splicer-format', val));
+async function handleFileUpload(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = input.files;
+    if (!files?.length) return;
+
+    loadedImages.value = [];
+
+    for (const file of Array.from(files)) {
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+
+        await new Promise<void>((resolve) => {
+            img.onload = () => resolve();
+        });
+
+        loadedImages.value.push({
+            file,
+            image: img,
+            name: file.name,
+            width: img.width,
+            height: img.height,
+        });
+    }
+
+    if (loadedImages.value.length > 0) {
+        selectedImage.value = loadedImages.value[0];
+    }
+    drawGrid();
+}
+
 watch(filenamePrefix, (val) => localStorage.setItem('splicer-prefix', val));
+watch(selectedImage, resetView);
+watch(selectedImage, (img) => {
+    if (!img) return;
+
+    const settings = imageSettings.value[img.name];
+    if (settings) {
+        cols.value = settings.cols;
+        rows.value = settings.rows;
+        exportFormat.value = settings.format;
+    } else {
+        imageSettings.value[img.name] = getDefaultSettings();
+    }
+});
 
 function drawGrid(): void {
     const canvas = canvasRef.value;
     const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx || !image.value) return;
+    if (!canvas || !ctx || !currentImage.value) {
+        return;
+    }
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width;
     canvas.height = rect.height;
-    ctx.setTransform(zoom.value, 0, 0, zoom.value, offsetX.value, offsetY.value);
+    const settings = imageSettings.value[selectedImage.value!.name] ?? getDefaultSettings();
+    ctx.setTransform(settings.zoom, 0, 0, settings.zoom, settings.offsetX, settings.offsetY);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(image.value, offsetX.value, offsetY.value, image.value.width * zoom.value, image.value.height * zoom.value);
+    ctx.drawImage(currentImage.value, offsetX.value, offsetY.value, currentImage.value.width * zoom.value, currentImage.value.height * zoom.value);
 
-    const scaledW = (image.value.width * zoom.value) / cols.value;
-    const scaledH = (image.value.height * zoom.value) / rows.value;
+    const colCount = imageSettings.value[selectedImage.value!.name]?.cols ?? cols.value;
+    const rowCount = imageSettings.value[selectedImage.value!.name]?.rows ?? rows.value;
+
+    if (colCount <= 0 || rowCount <= 0) {
+        return;
+    }
+
+    const scaledW = (currentImage.value.width * zoom.value) / colCount;
+    const scaledH = (currentImage.value.height * zoom.value) / rowCount;
     ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
     ctx.lineWidth = 1;
 
-    for (let x = 1; x < cols.value; x++) {
+    if (!selectedImage.value) {
+        return;
+    }
+
+    for (let x = 1; x < colCount; x++) {
         const lineX = offsetX.value + x * scaledW;
         ctx.beginPath();
         ctx.moveTo(lineX, offsetY.value);
-        ctx.lineTo(lineX, offsetY.value + image.value.height * zoom.value);
+        ctx.lineTo(lineX, offsetY.value + currentImage.value.height * zoom.value);
         ctx.stroke();
     }
 
-    for (let y = 1; y < rows.value; y++) {
+    for (let y = 1; y < rowCount; y++) {
         const lineY = offsetY.value + y * scaledH;
         ctx.beginPath();
         ctx.moveTo(offsetX.value, lineY);
-        ctx.lineTo(offsetX.value + image.value.width * zoom.value, lineY);
+        ctx.lineTo(offsetX.value + currentImage.value.width * zoom.value, lineY);
         ctx.stroke();
     }
     skippedTilesPositions.value = [];
     skippedTiles.value.forEach((index) => {
-        const col = index % cols.value;
-        const row = Math.floor(index / cols.value);
+        const col = index % colCount;
+        const row = Math.floor(index / colCount);
 
         const ctxTransform = ctx.getTransform();
 
@@ -171,56 +255,74 @@ function drawGrid(): void {
     });
 }
 
-async function sliceImage() {
-    if (!canvasRef.value || !image.value) return;
+async function sliceImage(): Promise<void> {
+    if (!loadedImages.value.length) return;
+
     loading.value = true;
-    const offscreen = document.createElement('canvas');
-    offscreen.width = image.value.width;
-    offscreen.height = image.value.height;
-    const ctx = offscreen.getContext('2d')!;
+    const zip = new JSZip();
 
-    ctx.drawImage(image.value, 0, 0);
-    const fullImageData = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
+    const imagesToExport = exportOnlySelected.value && selectedImage.value ? [selectedImage.value] : loadedImages.value;
+    for (const imgObj of imagesToExport) {
+        const { image: img, name } = imgObj;
+        progressValue.value = 0;
+        progressBufferValue.value = 0;
 
-    const worker = new SlicerWorker();
-    const payload = {
-        imageData: fullImageData,
-        cols: cols.value,
-        rows: rows.value,
-        format: exportFormat.value,
-    };
-
-    worker.postMessage(payload);
-
-    worker.onmessage = async (e: MessageEvent<any>) => {
-        await nextTick();
-
-        if (e.data.type === 'progress') {
-            progressValue.value = (e.data.done / e.data.total) * 100;
-            progressBufferValue.value = (e.data.done / e.data.total) * 100 + 100 / e.data.total;
+        const colCount = imageSettings.value[name]?.cols ?? cols.value;
+        const rowCount = imageSettings.value[name]?.rows ?? rows.value;
+        const format = imageSettings.value[name]?.format ?? exportFormat.value;
+        if (colCount <= 0 || rowCount <= 0) {
+            continue;
         }
 
-        if (e.data.type === 'done') {
-            skippedTiles.value = e.data.emptyIndices;
-            const zip = new JSZip();
-            const { slices, emptyIndices } = e.data;
-            let sliceIndex = 0;
+        const offscreen = document.createElement('canvas');
+        offscreen.width = img.width;
+        offscreen.height = img.height;
+        const ctx = offscreen.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
 
-            for (let i = 0; i < cols.value * rows.value; i++) {
-                if (emptyIndices.includes(i)) continue;
-                zip.file(`${filenamePrefix.value}-${i + 1}.${exportFormat.value}`, slices[sliceIndex]);
-                sliceIndex++;
-            }
+        const fullImageData = ctx.getImageData(0, 0, img.width, img.height);
 
-            const zipBlob = await zip.generateAsync({ type: 'blob' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(zipBlob);
-            link.download = 'slices.zip';
-            link.click();
-            loading.value = false;
-            drawGrid();
+        const worker = new SlicerWorker();
+        const payload = {
+            imageData: fullImageData,
+            cols: colCount,
+            rows: rowCount,
+            format,
+        };
+
+        const workerResult = await new Promise<{ slices: Blob[]; emptyIndices: number[] }>((resolve) => {
+            worker.onmessage = (e: MessageEvent<any>) => {
+                if (e.data.type === 'progress') {
+                    progressValue.value = (e.data.done / e.data.total) * 100;
+                    progressBufferValue.value = progressValue.value + 100 / e.data.total;
+                }
+                if (e.data.type === 'done') {
+                    resolve({
+                        slices: e.data.slices,
+                        emptyIndices: e.data.emptyIndices,
+                    });
+                }
+            };
+            worker.postMessage(payload);
+        });
+
+        const { slices, emptyIndices } = workerResult;
+        let sliceIndex = 0;
+
+        for (let t = 0; t < colCount * rowCount; t++) {
+            if (emptyIndices.includes(t)) continue;
+            zip.file(`${name}/${filenamePrefix.value}-${t + 1}.${format}`, slices[sliceIndex]);
+            sliceIndex++;
         }
-    };
+    }
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(zipBlob);
+    link.download = 'slices.zip';
+    link.click();
+
+    loading.value = false;
 }
 
 function resetView(): void {
@@ -231,22 +333,34 @@ function resetView(): void {
 }
 
 function onWheel(e: WheelEvent): void {
+    e.preventDefault();
+    if (!selectedImage.value || !imageSettings.value) {
+        return;
+    }
     const delta = e.deltaY < 0 ? 0.1 : -0.1;
-    zoom.value = Math.min(Math.max(0.1, zoom.value + delta), 5);
+    const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
+    settings.zoom = Math.min(Math.max(0.1, settings.zoom + delta), 5);
+    imageSettings.value[selectedImage.value.name] = settings;
     drawGrid();
 }
 
 function onCanvasMouseDown(e: MouseEvent): void {
+    if (!selectedImage.value || !imageSettings.value) {
+        return;
+    }
     isPanning.value = true;
-    panStart = { x: e.clientX - offsetX.value, y: e.clientY - offsetY.value };
+    const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
+    panStart = { x: e.clientX - settings.offsetX, y: e.clientY - settings.offsetY };
 }
 
 function onCanvasMouseMove(e: MouseEvent): void {
-    if (!isPanning.value) {
+    if (!isPanning.value || !selectedImage.value || !imageSettings.value) {
         return;
     }
-    offsetX.value = e.clientX - panStart.x;
-    offsetY.value = e.clientY - panStart.y;
+    const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
+    settings.offsetX = e.clientX - panStart.x;
+    settings.offsetY = e.clientY - panStart.y;
+    imageSettings.value[selectedImage.value.name] = settings;
     drawGrid();
 }
 
