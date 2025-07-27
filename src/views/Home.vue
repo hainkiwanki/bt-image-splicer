@@ -4,44 +4,8 @@
             <v-container>
                 <h1 class="text-h4 mb-4">Image Splicer</h1>
 
-                <v-file-input label="Upload image(s)" accept="image/*" chips @change="handleFileUpload" v-model="refFiles" multiple>
-                    <template v-slot:selection="{ fileNames }">
-                        <template v-for="(fileName, index) in fileNames" :key="fileName">
-                            <v-chip v-if="index < 3" color="primary" size="small" label>
-                                {{ fileName }}
-                            </v-chip>
-                        </template>
-                    </template>
-                </v-file-input>
-                <div
-                    class="drop-area mb-4"
-                    :class="{ dragging: isDragging }"
-                    @dragover.prevent="isDragging = true"
-                    @dragleave="isDragging = false"
-                    @drop="
-                        (e) => {
-                            isDragging = false;
-                            handleDrop(e);
-                        }
-                    "
-                >
-                    <p class="text-subtitle-2">Drag & drop images or folders here</p>
-                </div>
-
-                <v-row v-if="selectedImage" dense align="center">
-                    <v-col cols="6" md="3">
-                        <v-text-field label="Columns" type="number" :model-value="imageSettings[selectedImage.name]?.cols ?? cols" @update:model-value="updateImageSetting('cols', $event as unknown as number)" />
-                    </v-col>
-                    <v-col cols="6" md="3">
-                        <v-text-field label="Rows" type="number" :model-value="imageSettings[selectedImage.name]?.rows ?? rows" @update:model-value="updateImageSetting('rows', $event as unknown as number)" />
-                    </v-col>
-                    <v-col cols="12" md="3">
-                        <v-select label="Export Format" :items="['png', 'jpeg']" :model-value="imageSettings[selectedImage.name]?.format ?? exportFormat" @update:model-value="updateImageSetting('format', $event)" />
-                    </v-col>
-                    <v-col cols="12" md="3">
-                        <v-text-field label="Filename Prefix" v-model="filenamePrefix" />
-                    </v-col>
-                </v-row>
+                <image-uploader @images-loaded="onImagesLoadedEvent" />
+                <image-settings v-if="selectedImage" :settings="currentSettings" @update-setting="onUpdateSetting"></image-settings>
 
                 <v-row dense v-if="loadedImages.length > 1">
                     <v-col cols="6" md="6">
@@ -98,39 +62,45 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { type ComputedRef, computed, ref, watch } from 'vue';
 
 import JSZip from 'jszip';
 
+import ImageSettings from '@/components/ImageSettings.vue';
+import ImageUploader from '@/components/ImageUploader.vue';
+import { type ImageSettingKeyType, type ImageSettingsTyped, getDefaultSettings } from '@/types/imageSettingsTyped.mjs';
+import type { LoadedImageTyped } from '@/types/loadedImageTyped.mjs';
 import SlicerWorker from '@/worker/slicer.worker?worker';
 
-interface LoadedImage {
-    file: File;
-    image: HTMLImageElement;
-    name: string;
-    width: number;
-    height: number;
-    folder?: string;
+const imageSettings = ref<Record<string, ImageSettingsTyped>>({});
+const loadedImages = ref<LoadedImageTyped[]>([]);
+const selectedImage = ref<LoadedImageTyped | null>(null);
+
+const currentSettings: ComputedRef<ImageSettingsTyped> = computed(() => {
+    if (!selectedImage.value) {
+        return getDefaultSettings();
+    }
+
+    const name = selectedImage.value.name;
+    return imageSettings.value[name] ?? getDefaultSettings();
+});
+
+function onImagesLoadedEvent(images: LoadedImageTyped[]): void {
+    loadedImages.value.push(...images);
+    selectedImage.value = loadedImages.value[0];
+    drawGrid();
 }
 
-interface ImageSettings {
-    cols: number;
-    rows: number;
-    format: 'png' | 'jpeg';
-    zoom: number;
-    offsetX: number;
-    offsetY: number;
-}
+function onUpdateSetting(key: ImageSettingKeyType, value: any): void {
+    const img = selectedImage.value;
+    if (!img) return;
 
-function getDefaultSettings(): ImageSettings {
-    return {
-        cols: cols.value,
-        rows: rows.value,
-        format: exportFormat.value,
-        zoom: 1,
-        offsetX: 0,
-        offsetY: 0,
+    imageSettings.value[img.name] = {
+        ...currentSettings.value,
+        [key]: value,
     };
+
+    drawGrid();
 }
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -143,76 +113,20 @@ const skippedTilesPositions = ref<{ x: number; y: number; h: number; w: number }
 const progressValue = ref(0);
 const progressBufferValue = ref(0);
 const filenamePrefix = ref<string>(localStorage.getItem('splicer-prefix') || 'slice');
-const refFiles = ref([]);
-const loadedImages = ref<LoadedImage[]>([]);
-const selectedImage = ref<LoadedImage | null>(null);
+
 const currentImage = computed(() => selectedImage.value?.image || null);
 const exportOnlySelected = ref<boolean>(false);
-const imageSettings = ref<Record<string, ImageSettings>>({});
 const exportedZipBlob = ref<Blob | null>(null);
 const exportSummary = ref('');
 const showSnackbar = ref(false);
-const isDragging = ref(false);
 const zoom = ref(1);
 const offsetX = ref(0);
 const offsetY = ref(0);
 let isPanning = ref(false);
 let panStart = { x: 0, y: 0 };
 
-function updateImageSetting(key: 'cols' | 'rows' | 'format', value: number | 'png' | 'jpeg'): void {
-    if (!selectedImage.value) return;
-    const name = selectedImage.value.name;
-    imageSettings.value[name] = {
-        ...imageSettings.value[name],
-        [key]: value,
-    };
-    drawGrid();
-}
-
-async function handleFileUpload(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const files = input.files;
-    if (!files?.length) return;
-
-    loadedImages.value = [];
-
-    for (const file of Array.from(files)) {
-        const img = new Image();
-        img.src = URL.createObjectURL(file);
-
-        await new Promise<void>((resolve) => {
-            img.onload = () => resolve();
-        });
-
-        loadedImages.value.push({
-            file,
-            image: img,
-            name: file.name,
-            width: img.width,
-            height: img.height,
-        });
-    }
-
-    if (loadedImages.value.length > 0) {
-        selectedImage.value = loadedImages.value[0];
-    }
-    drawGrid();
-}
-
 watch(filenamePrefix, (val) => localStorage.setItem('splicer-prefix', val));
 watch(selectedImage, resetView);
-watch(selectedImage, (img) => {
-    if (!img) return;
-
-    const settings = imageSettings.value[img.name];
-    if (settings) {
-        cols.value = settings.cols;
-        rows.value = settings.rows;
-        exportFormat.value = settings.format;
-    } else {
-        imageSettings.value[img.name] = getDefaultSettings();
-    }
-});
 
 function drawGrid(): void {
     const canvas = canvasRef.value;
@@ -223,13 +137,15 @@ function drawGrid(): void {
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width;
     canvas.height = rect.height;
-    const settings = imageSettings.value[selectedImage.value!.name] ?? getDefaultSettings();
-    ctx.setTransform(settings.zoom, 0, 0, settings.zoom, settings.offsetX, settings.offsetY);
+    // const settings = imageSettings.value[selectedImage.value!.name] ?? getDefaultSettings();
+    // ctx.setTransform(settings.zoom, 0, 0, settings.zoom, settings.offsetX, settings.offsetY);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(currentImage.value, offsetX.value, offsetY.value, currentImage.value.width * zoom.value, currentImage.value.height * zoom.value);
 
-    const colCount = imageSettings.value[selectedImage.value!.name]?.cols ?? cols.value;
-    const rowCount = imageSettings.value[selectedImage.value!.name]?.rows ?? rows.value;
+    // const colCount = imageSettings.value[selectedImage.value!.name]?.cols ?? cols.value;
+    const colCount = cols.value;
+    // const rowCount = imageSettings.value[selectedImage.value!.name]?.rows ?? rows.value;
+    const rowCount = rows.value;
 
     if (colCount <= 0 || rowCount <= 0) {
         return;
@@ -296,9 +212,13 @@ async function sliceImage(): Promise<void> {
         progressValue.value = 0;
         progressBufferValue.value = 0;
 
-        const colCount = imageSettings.value[name]?.cols ?? cols.value;
-        const rowCount = imageSettings.value[name]?.rows ?? rows.value;
-        const format = imageSettings.value[name]?.format ?? exportFormat.value;
+        // const colCount = imageSettings.value[name]?.cols ?? cols.value;
+        // const rowCount = imageSettings.value[name]?.rows ?? rows.value;
+        // const format = imageSettings.value[name]?.format ?? exportFormat.value;
+
+        const colCount = cols.value;
+        const rowCount = rows.value;
+        const format = exportFormat.value;
         if (colCount <= 0 || rowCount <= 0) {
             continue;
         }
@@ -379,85 +299,38 @@ function downloadZip(): void {
 
 function onWheel(e: WheelEvent): void {
     e.preventDefault();
-    if (!selectedImage.value || !imageSettings.value) {
+    if (!selectedImage.value) {
         return;
     }
     const delta = e.deltaY < 0 ? 0.1 : -0.1;
-    const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
-    settings.zoom = Math.min(Math.max(0.1, settings.zoom + delta), 5);
-    imageSettings.value[selectedImage.value.name] = settings;
+    // const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
+    // settings.zoom = Math.min(Math.max(0.1, settings.zoom + delta), 5);
+    // imageSettings.value[selectedImage.value.name] = settings;
     drawGrid();
 }
 
 function onCanvasMouseDown(e: MouseEvent): void {
-    if (!selectedImage.value || !imageSettings.value) {
-        return;
-    }
-    isPanning.value = true;
-    const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
-    panStart = { x: e.clientX - settings.offsetX, y: e.clientY - settings.offsetY };
+    // if (!selectedImage.value || !imageSettings.value) {
+    //     return;
+    // }
+    // isPanning.value = true;
+    // const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
+    // panStart = { x: e.clientX - settings.offsetX, y: e.clientY - settings.offsetY };
 }
 
 function onCanvasMouseMove(e: MouseEvent): void {
-    if (!isPanning.value || !selectedImage.value || !imageSettings.value) {
-        return;
-    }
-    const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
-    settings.offsetX = e.clientX - panStart.x;
-    settings.offsetY = e.clientY - panStart.y;
-    imageSettings.value[selectedImage.value.name] = settings;
-    drawGrid();
+    // if (!isPanning.value || !selectedImage.value || !imageSettings.value) {
+    //     return;
+    // }
+    // const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
+    // settings.offsetX = e.clientX - panStart.x;
+    // settings.offsetY = e.clientY - panStart.y;
+    // imageSettings.value[selectedImage.value.name] = settings;
+    // drawGrid();
 }
 
 function onCanvasMouseUp(): void {
     isPanning.value = false;
-}
-
-function handleDrop(e: DragEvent): void {
-    e.preventDefault();
-    const items = e.dataTransfer?.items;
-    if (!items) return;
-
-    for (const item of items) {
-        const entry = item.webkitGetAsEntry?.();
-        if (entry) {
-            traverseEntry(entry);
-        }
-    }
-}
-
-function traverseEntry(entry: any, path = ''): void {
-    if (entry.isFile) {
-        entry.file((file: File) => {
-            if (!file.type.startsWith('image/')) return;
-            const img = new Image();
-            img.src = URL.createObjectURL(file);
-
-            img.onload = () => {
-                loadedImages.value.push({
-                    file,
-                    image: img,
-                    name: file.name,
-                    width: img.width,
-                    height: img.height,
-                    folder: path,
-                });
-
-                if (!selectedImage.value) {
-                    selectedImage.value = loadedImages.value[0];
-                }
-
-                drawGrid();
-            };
-        });
-    } else if (entry.isDirectory) {
-        const reader = entry.createReader();
-        reader.readEntries((entries: any[]) => {
-            for (const subEntry of entries) {
-                traverseEntry(subEntry, `${path}${entry.name}/`);
-            }
-        });
-    }
 }
 </script>
 
@@ -495,23 +368,5 @@ function traverseEntry(entry: any, path = ''): void {
 /* stylelint-disable-next-line selector-class-pattern */
 .v-progress-linear__bar {
     transition: width 0.4s ease-in-out;
-}
-
-.drop-area {
-    padding: 1rem;
-    border: 2px dashed #aaa;
-    border-radius: 8px;
-    background: #f9f9f9;
-    text-align: center;
-    transition: border-color 0.3s ease;
-
-    &:hover {
-        border-color: #1976d2;
-    }
-
-    &.dragging {
-        background-color: #e3f2fd;
-        border-color: #1976d2;
-    }
 }
 </style>
