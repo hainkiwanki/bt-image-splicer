@@ -4,7 +4,7 @@
             <v-container>
                 <h1 class="text-h4 mb-4">Image Splicer</h1>
 
-                <v-file-input label="Upload Image" accept="image/*" chips multiple @change="handleFileUpload" counter v-model="refFiles">
+                <v-file-input label="Upload Image" accept="image/*" chips @change="handleFileUpload" counter v-model="refFiles">
                     <template v-slot:selection="{ fileNames }">
                         <template v-for="(fileName, index) in fileNames" :key="fileName">
                             <v-chip v-if="index < 2" class="me-2" color="primary" size="small" label>
@@ -16,28 +16,36 @@
                     </template>
                 </v-file-input>
 
-                <v-row class="mt-4">
+                <v-row dense class="mb-2" align="center">
                     <v-col cols="6" md="3">
                         <v-text-field label="Columns" type="number" v-model.number="cols" />
                     </v-col>
                     <v-col cols="6" md="3">
                         <v-text-field label="Rows" type="number" v-model.number="rows" />
                     </v-col>
-                    <v-col cols="12" md="6">
-                        <v-btn :disabled="!canvasRef?.width || !canvasRef?.height" @click="sliceImage" color="primary"> Export Slices </v-btn>
-                    </v-col>
-                    <v-col cols="12" md="6">
+                    <v-col cols="12" md="3">
                         <v-select v-model="exportFormat" :items="['png', 'jpeg']" label="Export Format" />
                     </v-col>
+                    <v-col cols="12" md="3">
+                        <v-text-field label="Filename Prefix" v-model="filenamePrefix" />
+                    </v-col>
+                </v-row>
+
+                <v-row dense class="mb-4">
                     <v-col cols="12" md="6">
-                        <v-text-field v-model="filenamePrefix" label="Filename Prefix" />
+                        <v-btn block color="primary" :disabled="!canvasRef" @click="sliceImage"> Export Slices </v-btn>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                        <v-btn block color="secondary" @click="resetView()"> Reset </v-btn>
                     </v-col>
                 </v-row>
 
                 <v-progress-linear v-if="loading" :model-value="progressValue" :value="progressValue" :buffer-value="progressBufferValue" color="primary" height="6" class="mb-4" />
+
                 <div class="canvas-wrapper">
                     <canvas ref="canvasRef" class="preview-canvas" @wheel.passive="onWheel" @mousedown="onCanvasMouseDown" @mousemove="onCanvasMouseMove" @mouseup="onCanvasMouseUp" />
                     <div
+                        v-if="!isPanning"
                         v-for="(tile, index) in skippedTilesPositions"
                         :key="index"
                         class="skipped-overlay"
@@ -51,8 +59,6 @@
                         <v-tooltip activator="parent" location="top"> Skipped tile: empty </v-tooltip>
                     </div>
                 </div>
-
-                <v-btn @click="resetView">Reset View</v-btn>
             </v-container>
         </v-main>
     </v-app>
@@ -81,7 +87,7 @@ const refFiles = ref([]);
 const zoom = ref(1);
 const offsetX = ref(0);
 const offsetY = ref(0);
-let isPanning = false;
+let isPanning = ref(false);
 let panStart = { x: 0, y: 0 };
 
 async function handleFileUpload(event: Event): Promise<void> {
@@ -99,6 +105,8 @@ async function handleFileUpload(event: Event): Promise<void> {
         img.onload = () => resolve();
     });
     image.value = img;
+    skippedTilesPositions.value = [];
+    skippedTiles.value = [];
     drawGrid();
 }
 
@@ -112,46 +120,54 @@ function drawGrid(): void {
     const canvas = canvasRef.value;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx || !image.value) return;
-
-    canvas.width = image.value.width;
-    canvas.height = image.value.height;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
     ctx.setTransform(zoom.value, 0, 0, zoom.value, offsetX.value, offsetY.value);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(image.value, 0, 0);
+    ctx.drawImage(image.value, offsetX.value, offsetY.value, image.value.width * zoom.value, image.value.height * zoom.value);
 
-    const w = canvas.width / cols.value;
-    const h = canvas.height / rows.value;
+    const scaledW = (image.value.width * zoom.value) / cols.value;
+    const scaledH = (image.value.height * zoom.value) / rows.value;
     ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
     ctx.lineWidth = 1;
 
     for (let x = 1; x < cols.value; x++) {
+        const lineX = offsetX.value + x * scaledW;
         ctx.beginPath();
-        ctx.moveTo(x * w, 0);
-        ctx.lineTo(x * w, canvas.height);
+        ctx.moveTo(lineX, offsetY.value);
+        ctx.lineTo(lineX, offsetY.value + image.value.height * zoom.value);
         ctx.stroke();
     }
 
     for (let y = 1; y < rows.value; y++) {
+        const lineY = offsetY.value + y * scaledH;
         ctx.beginPath();
-        ctx.moveTo(0, y * h);
-        ctx.lineTo(canvas.width, y * h);
+        ctx.moveTo(offsetX.value, lineY);
+        ctx.lineTo(offsetX.value + image.value.width * zoom.value, lineY);
         ctx.stroke();
     }
     skippedTilesPositions.value = [];
     skippedTiles.value.forEach((index) => {
         const col = index % cols.value;
         const row = Math.floor(index / cols.value);
-        const x = col * w;
-        const y = row * h;
+
+        const ctxTransform = ctx.getTransform();
+
+        const x = offsetX.value * ctxTransform.a + col * scaledW * ctxTransform.a + ctxTransform.e;
+        const x2 = offsetX.value + col * scaledW;
+        const y = offsetY.value * ctxTransform.a + row * scaledH * ctxTransform.a + ctxTransform.f;
+        const y2 = offsetY.value + row * scaledH;
 
         skippedTilesPositions.value.push({
-            x,
-            y,
-            h,
-            w,
+            x: x,
+            y: y,
+            w: scaledW * ctxTransform.a,
+            h: scaledH * ctxTransform.a,
         });
+
         ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
-        ctx.fillRect(x, y, w, h);
+        ctx.fillRect(x2, y2, scaledW, scaledH);
     });
 }
 
@@ -162,6 +178,7 @@ async function sliceImage() {
     offscreen.width = image.value.width;
     offscreen.height = image.value.height;
     const ctx = offscreen.getContext('2d')!;
+
     ctx.drawImage(image.value, 0, 0);
     const fullImageData = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
 
@@ -181,7 +198,6 @@ async function sliceImage() {
         if (e.data.type === 'progress') {
             progressValue.value = (e.data.done / e.data.total) * 100;
             progressBufferValue.value = (e.data.done / e.data.total) * 100 + 100 / e.data.total;
-            console.error(progressValue.value, progressBufferValue.value);
         }
 
         if (e.data.type === 'done') {
@@ -213,27 +229,29 @@ function resetView(): void {
     offsetY.value = 0;
     drawGrid();
 }
+
 function onWheel(e: WheelEvent): void {
-    e.preventDefault();
     const delta = e.deltaY < 0 ? 0.1 : -0.1;
     zoom.value = Math.min(Math.max(0.1, zoom.value + delta), 5);
     drawGrid();
 }
 
 function onCanvasMouseDown(e: MouseEvent): void {
-    isPanning = true;
+    isPanning.value = true;
     panStart = { x: e.clientX - offsetX.value, y: e.clientY - offsetY.value };
 }
 
 function onCanvasMouseMove(e: MouseEvent): void {
-    if (!isPanning) return;
+    if (!isPanning.value) {
+        return;
+    }
     offsetX.value = e.clientX - panStart.x;
     offsetY.value = e.clientY - panStart.y;
     drawGrid();
 }
 
 function onCanvasMouseUp(): void {
-    isPanning = false;
+    isPanning.value = false;
 }
 </script>
 
@@ -242,8 +260,7 @@ function onCanvasMouseUp(): void {
     position: relative;
     max-width: 100%;
     max-height: 80vh;
-    margin-top: 2rem;
-    border: 1px solid #ddd;
+    margin-top: 1rem;
     border: 2px dashed #ccc;
     border-radius: 8px;
     overflow: auto;
@@ -256,6 +273,7 @@ function onCanvasMouseUp(): void {
 
 .preview-canvas {
     display: block;
+    width: 100%;
     height: auto;
     max-width: 100%;
     transition: transform 0.3s ease;
