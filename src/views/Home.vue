@@ -4,19 +4,31 @@
             <v-container>
                 <h1 class="text-h4 mb-4">Image Splicer</h1>
 
-                <v-file-input label="Upload Image" accept="image/*" chips @change="handleFileUpload" counter v-model="refFiles" multiple>
+                <v-file-input label="Upload image(s)" accept="image/*" chips @change="handleFileUpload" v-model="refFiles" multiple>
                     <template v-slot:selection="{ fileNames }">
                         <template v-for="(fileName, index) in fileNames" :key="fileName">
-                            <v-chip v-if="index < 2" class="me-2" color="primary" size="small" label>
+                            <v-chip v-if="index < 3" color="primary" size="small" label>
                                 {{ fileName }}
                             </v-chip>
-
-                            <span v-else-if="index === 2" class="text-overline text-grey-darken-3 mx-2"> +{{ refFiles.length - 2 }} File(s) </span>
                         </template>
                     </template>
                 </v-file-input>
+                <div
+                    class="drop-area mb-4"
+                    :class="{ dragging: isDragging }"
+                    @dragover.prevent="isDragging = true"
+                    @dragleave="isDragging = false"
+                    @drop="
+                        (e) => {
+                            isDragging = false;
+                            handleDrop(e);
+                        }
+                    "
+                >
+                    <p class="text-subtitle-2">Drag & drop images or folders here</p>
+                </div>
 
-                <v-row v-if="selectedImage" dense class="mb-2" align="center">
+                <v-row v-if="selectedImage" dense align="center">
                     <v-col cols="6" md="3">
                         <v-text-field label="Columns" type="number" :model-value="imageSettings[selectedImage.name]?.cols ?? cols" @update:model-value="updateImageSetting('cols', $event as unknown as number)" />
                     </v-col>
@@ -31,7 +43,7 @@
                     </v-col>
                 </v-row>
 
-                <v-row dense class="mb-3" v-if="loadedImages.length > 1">
+                <v-row dense v-if="loadedImages.length > 1">
                     <v-col cols="6" md="6">
                         <v-select label="Select Image" :items="loadedImages" item-title="name" :item-value="(item) => item" v-model="selectedImage" />
                     </v-col>
@@ -40,10 +52,10 @@
                     </v-col>
                 </v-row>
 
-                <v-progress-linear v-if="loading" :model-value="progressValue" :value="progressValue" :buffer-value="progressBufferValue" color="primary" height="6" class="mb-4" />
-                <v-row v-if="exportedZipBlob" class="mb-4">
+                <v-progress-linear v-if="loading" :model-value="progressValue" :value="progressValue" :buffer-value="progressBufferValue" color="primary" height="6" />
+                <v-row v-if="exportedZipBlob">
                     <v-col cols="12">
-                        <v-btn v-if="exportedZipBlob" color="primary" class="mb-4" variant="elevated" size="large" prepend-icon="mdi-download" @click="downloadZip">Download ZIP</v-btn>
+                        <v-btn v-if="exportedZipBlob" color="primary" style="width: 100%" variant="elevated" size="large" prepend-icon="mdi-download" @click="downloadZip">Download ZIP</v-btn>
                     </v-col>
                 </v-row>
 
@@ -55,7 +67,14 @@
                         <v-btn block color="secondary" @click="resetView()">Reset</v-btn>
                     </v-col>
                 </v-row>
-                <v-snackbar v-model="showSnackbar" color="green" elevation="8" location="bottom right" transition="scale-transition"> {{ exportSummary }} </v-snackbar>
+                <v-snackbar v-model="showSnackbar" color="green" elevation="8" location="bottom right" transition="scale-transition">
+                    {{ exportSummary }}
+                    <template #actions>
+                        <v-btn icon @click="showSnackbar = false">
+                            <v-icon>mdi-close</v-icon>
+                        </v-btn>
+                    </template>
+                </v-snackbar>
                 <div class="canvas-wrapper">
                     <canvas ref="canvasRef" class="preview-canvas" @wheel="onWheel" @mousedown="onCanvasMouseDown" @mousemove="onCanvasMouseMove" @mouseup="onCanvasMouseUp" />
                     <div
@@ -91,6 +110,7 @@ interface LoadedImage {
     name: string;
     width: number;
     height: number;
+    folder?: string;
 }
 
 interface ImageSettings {
@@ -132,6 +152,7 @@ const imageSettings = ref<Record<string, ImageSettings>>({});
 const exportedZipBlob = ref<Blob | null>(null);
 const exportSummary = ref('');
 const showSnackbar = ref(false);
+const isDragging = ref(false);
 const zoom = ref(1);
 const offsetX = ref(0);
 const offsetY = ref(0);
@@ -324,7 +345,11 @@ async function sliceImage(): Promise<void> {
             if (emptyIndices.includes(t)) {
                 continue;
             }
-            zip.file(`${name}/${filenamePrefix.value}-${t + 1}.${format}`, slices[sliceIndex]);
+            const baseName = name.replace(/\.[^/.]+$/, ''); // e.g. "Gemss"
+            const folderPath = imgObj.folder ?? '';
+            const fullPath = `${folderPath}/${baseName}/${filenamePrefix.value}-${t + 1}.${format}`.replace(/^\/+/, '');
+            zip.file(fullPath, slices[sliceIndex]);
+
             sliceIndex++;
         }
     }
@@ -387,6 +412,53 @@ function onCanvasMouseMove(e: MouseEvent): void {
 function onCanvasMouseUp(): void {
     isPanning.value = false;
 }
+
+function handleDrop(e: DragEvent): void {
+    e.preventDefault();
+    const items = e.dataTransfer?.items;
+    if (!items) return;
+
+    for (const item of items) {
+        const entry = item.webkitGetAsEntry?.();
+        if (entry) {
+            traverseEntry(entry);
+        }
+    }
+}
+
+function traverseEntry(entry: any, path = ''): void {
+    if (entry.isFile) {
+        entry.file((file: File) => {
+            if (!file.type.startsWith('image/')) return;
+            const img = new Image();
+            img.src = URL.createObjectURL(file);
+
+            img.onload = () => {
+                loadedImages.value.push({
+                    file,
+                    image: img,
+                    name: file.name,
+                    width: img.width,
+                    height: img.height,
+                    folder: path,
+                });
+
+                if (!selectedImage.value) {
+                    selectedImage.value = loadedImages.value[0];
+                }
+
+                drawGrid();
+            };
+        });
+    } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        reader.readEntries((entries: any[]) => {
+            for (const subEntry of entries) {
+                traverseEntry(subEntry, `${path}${entry.name}/`);
+            }
+        });
+    }
+}
 </script>
 
 <style scoped lang="scss">
@@ -423,5 +495,23 @@ function onCanvasMouseUp(): void {
 /* stylelint-disable-next-line selector-class-pattern */
 .v-progress-linear__bar {
     transition: width 0.4s ease-in-out;
+}
+
+.drop-area {
+    padding: 1rem;
+    border: 2px dashed #aaa;
+    border-radius: 8px;
+    background: #f9f9f9;
+    text-align: center;
+    transition: border-color 0.3s ease;
+
+    &:hover {
+        border-color: #1976d2;
+    }
+
+    &.dragging {
+        background-color: #e3f2fd;
+        border-color: #1976d2;
+    }
 }
 </style>
