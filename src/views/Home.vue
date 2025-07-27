@@ -41,16 +41,21 @@
                 </v-row>
 
                 <v-progress-linear v-if="loading" :model-value="progressValue" :value="progressValue" :buffer-value="progressBufferValue" color="primary" height="6" class="mb-4" />
-
-                <v-row dense class="mb-4">
-                    <v-col cols="12" md="6">
-                        <v-btn block color="primary" :disabled="!canvasRef" @click="sliceImage"> Export Slices </v-btn>
-                    </v-col>
-                    <v-col cols="12" md="6">
-                        <v-btn block color="secondary" @click="resetView()"> Reset </v-btn>
+                <v-row v-if="exportedZipBlob" class="mb-4">
+                    <v-col cols="12">
+                        <v-btn v-if="exportedZipBlob" color="primary" class="mb-4" variant="elevated" size="large" prepend-icon="mdi-download" @click="downloadZip">Download ZIP</v-btn>
                     </v-col>
                 </v-row>
 
+                <v-row dense class="mb-4">
+                    <v-col cols="6" md="6">
+                        <v-btn block color="primary" :disabled="!canvasRef" @click="sliceImage"> Export Slices </v-btn>
+                    </v-col>
+                    <v-col cols="6" md="6">
+                        <v-btn block color="secondary" @click="resetView()">Reset</v-btn>
+                    </v-col>
+                </v-row>
+                <v-snackbar v-model="showSnackbar" color="green" elevation="8" location="bottom right" transition="scale-transition"> {{ exportSummary }} </v-snackbar>
                 <div class="canvas-wrapper">
                     <canvas ref="canvasRef" class="preview-canvas" @wheel="onWheel" @mousedown="onCanvasMouseDown" @mousemove="onCanvasMouseMove" @mouseup="onCanvasMouseUp" />
                     <div
@@ -124,7 +129,9 @@ const selectedImage = ref<LoadedImage | null>(null);
 const currentImage = computed(() => selectedImage.value?.image || null);
 const exportOnlySelected = ref<boolean>(false);
 const imageSettings = ref<Record<string, ImageSettings>>({});
-
+const exportedZipBlob = ref<Blob | null>(null);
+const exportSummary = ref('');
+const showSnackbar = ref(false);
 const zoom = ref(1);
 const offsetX = ref(0);
 const offsetY = ref(0);
@@ -262,6 +269,7 @@ async function sliceImage(): Promise<void> {
     const zip = new JSZip();
 
     const imagesToExport = exportOnlySelected.value && selectedImage.value ? [selectedImage.value] : loadedImages.value;
+    let totalSlices = 0;
     for (const imgObj of imagesToExport) {
         const { image: img, name } = imgObj;
         progressValue.value = 0;
@@ -307,22 +315,26 @@ async function sliceImage(): Promise<void> {
         });
 
         const { slices, emptyIndices } = workerResult;
+        totalSlices += slices.length;
         let sliceIndex = 0;
 
+        skippedTiles.value = workerResult.emptyIndices;
+
         for (let t = 0; t < colCount * rowCount; t++) {
-            if (emptyIndices.includes(t)) continue;
+            if (emptyIndices.includes(t)) {
+                continue;
+            }
             zip.file(`${name}/${filenamePrefix.value}-${t + 1}.${format}`, slices[sliceIndex]);
             sliceIndex++;
         }
     }
 
     const zipBlob = await zip.generateAsync({ type: 'blob' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(zipBlob);
-    link.download = 'slices.zip';
-    link.click();
-
+    exportedZipBlob.value = zipBlob;
+    exportSummary.value = `Exported ${totalSlices} slices from ${loadedImages.value.length} image${loadedImages.value.length > 1 ? 's' : ''}.`;
+    showSnackbar.value = true;
     loading.value = false;
+    drawGrid();
 }
 
 function resetView(): void {
@@ -330,6 +342,14 @@ function resetView(): void {
     offsetX.value = 0;
     offsetY.value = 0;
     drawGrid();
+}
+
+function downloadZip(): void {
+    if (!exportedZipBlob.value) return;
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(exportedZipBlob.value);
+    link.download = 'slices.zip';
+    link.click();
 }
 
 function onWheel(e: WheelEvent): void {
@@ -398,15 +418,6 @@ function onCanvasMouseUp(): void {
     border: 1px solid orange;
     background: rgb(255 255 0 / 30%);
     pointer-events: auto;
-}
-
-.v-btn {
-    transition: background-color 0.2s ease;
-
-    &:hover {
-        background-color: #1976d2 !important;
-        color: white;
-    }
 }
 
 /* stylelint-disable-next-line selector-class-pattern */
