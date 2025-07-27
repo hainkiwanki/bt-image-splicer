@@ -4,7 +4,17 @@
             <v-container>
                 <h1 class="text-h4 mb-4">Image Splicer</h1>
 
-                <v-file-input label="Upload Image" accept="image/*" chips multiple @change="handleFileUpload" />
+                <v-file-input label="Upload Image" accept="image/*" chips multiple @change="handleFileUpload" counter v-model="refFiles">
+                    <template v-slot:selection="{ fileNames }">
+                        <template v-for="(fileName, index) in fileNames" :key="fileName">
+                            <v-chip v-if="index < 2" class="me-2" color="primary" size="small" label>
+                                {{ fileName }}
+                            </v-chip>
+
+                            <span v-else-if="index === 2" class="text-overline text-grey-darken-3 mx-2"> +{{ refFiles.length - 2 }} File(s) </span>
+                        </template>
+                    </template>
+                </v-file-input>
 
                 <v-row class="mt-4">
                     <v-col cols="6" md="3">
@@ -26,7 +36,7 @@
 
                 <v-progress-linear v-if="loading" :model-value="progressValue" :value="progressValue" :buffer-value="progressBufferValue" color="primary" height="6" class="mb-4" />
                 <div class="canvas-wrapper">
-                    <canvas ref="canvasRef" class="preview-canvas" />
+                    <canvas ref="canvasRef" class="preview-canvas" @wheel.passive="onWheel" @mousedown="onCanvasMouseDown" @mousemove="onCanvasMouseMove" @mouseup="onCanvasMouseUp" />
                     <div
                         v-for="(tile, index) in skippedTilesPositions"
                         :key="index"
@@ -41,6 +51,8 @@
                         <v-tooltip activator="parent" location="top"> Skipped tile: empty </v-tooltip>
                     </div>
                 </div>
+
+                <v-btn @click="resetView">Reset View</v-btn>
             </v-container>
         </v-main>
     </v-app>
@@ -55,15 +67,22 @@ import SlicerWorker from '@/worker/slicer.worker?worker';
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const image = ref<HTMLImageElement | null>(null);
-const cols = ref(3);
-const rows = ref(3);
-const exportFormat = ref<'png' | 'jpeg'>('png');
+const cols = ref<number>(parseInt(localStorage.getItem('splicer-cols') || '3'));
+const rows = ref<number>(parseInt(localStorage.getItem('splicer-rows') || '3'));
+const exportFormat = ref<'png' | 'jpeg'>(localStorage.getItem('splicer-format') === 'jpeg' ? 'jpeg' : 'png');
 const loading = ref(false);
 const skippedTiles = ref<number[]>([]);
 const skippedTilesPositions = ref<{ x: number; y: number; h: number; w: number }[]>([]);
 const progressValue = ref(0);
 const progressBufferValue = ref(0);
-const filenamePrefix = ref('slice');
+const filenamePrefix = ref<string>(localStorage.getItem('splicer-prefix') || 'slice-');
+const refFiles = ref([]);
+
+const zoom = ref(1);
+const offsetX = ref(0);
+const offsetY = ref(0);
+let isPanning = false;
+let panStart = { x: 0, y: 0 };
 
 async function handleFileUpload(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
@@ -84,6 +103,10 @@ async function handleFileUpload(event: Event): Promise<void> {
 }
 
 watch([cols, rows], drawGrid);
+watch(cols, (val) => localStorage.setItem('splicer-cols', val.toString()));
+watch(rows, (val) => localStorage.setItem('splicer-rows', val.toString()));
+watch(exportFormat, (val) => localStorage.setItem('splicer-format', val));
+watch(filenamePrefix, (val) => localStorage.setItem('splicer-prefix', val));
 
 function drawGrid(): void {
     const canvas = canvasRef.value;
@@ -92,6 +115,8 @@ function drawGrid(): void {
 
     canvas.width = image.value.width;
     canvas.height = image.value.height;
+    ctx.setTransform(zoom.value, 0, 0, zoom.value, offsetX.value, offsetY.value);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(image.value, 0, 0);
 
     const w = canvas.width / cols.value;
@@ -168,7 +193,6 @@ async function sliceImage() {
             for (let i = 0; i < cols.value * rows.value; i++) {
                 if (emptyIndices.includes(i)) continue;
                 zip.file(`${filenamePrefix.value}-${i + 1}.${exportFormat.value}`, slices[sliceIndex]);
-                zip.file(`slice-${i + 1}.${exportFormat.value}`, slices[sliceIndex]);
                 sliceIndex++;
             }
 
@@ -181,6 +205,34 @@ async function sliceImage() {
             drawGrid();
         }
     };
+}
+function resetView(): void {
+    zoom.value = 1;
+    offsetX.value = 0;
+    offsetY.value = 0;
+    drawGrid();
+}
+function onWheel(e: WheelEvent): void {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.1 : -0.1;
+    zoom.value = Math.min(Math.max(0.1, zoom.value + delta), 5);
+    drawGrid();
+}
+
+function onCanvasMouseDown(e: MouseEvent): void {
+    isPanning = true;
+    panStart = { x: e.clientX - offsetX.value, y: e.clientY - offsetY.value };
+}
+
+function onCanvasMouseMove(e: MouseEvent): void {
+    if (!isPanning) return;
+    offsetX.value = e.clientX - panStart.x;
+    offsetY.value = e.clientY - panStart.y;
+    drawGrid();
+}
+
+function onCanvasMouseUp(): void {
+    isPanning = false;
 }
 </script>
 
