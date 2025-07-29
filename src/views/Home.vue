@@ -25,7 +25,7 @@
 
                 <v-row dense class="mb-4">
                     <v-col cols="6" md="6">
-                        <v-btn block color="primary" :disabled="!canvasRef" @click="sliceImage"> Export Slices </v-btn>
+                        <v-btn block color="primary" @click="sliceImage"> Export Slices </v-btn>
                     </v-col>
                     <v-col cols="6" md="6">
                         <v-btn block color="secondary" @click="resetView()">Reset</v-btn>
@@ -39,14 +39,14 @@
                         </v-btn>
                     </template>
                 </v-snackbar>
-                <canvas-view ref="canvasViewRef" :current-settings="currentSettings" :image="selectedImage?.image" @on-zoom-changed="onZoomChanged" />
+                <canvas-view ref="canvasViewRef" :current-settings="currentSettings" :image="selectedImage?.image" :skipped-tiles="skippedTiles" @update-setting="onUpdateSetting" />
             </v-container>
         </v-main>
     </v-app>
 </template>
 
 <script setup lang="ts">
-import { type ComputedRef, type Ref, computed, ref, watch } from 'vue';
+import { type ComputedRef, type Ref, computed, ref } from 'vue';
 
 import JSZip from 'jszip';
 
@@ -72,25 +72,15 @@ const currentSettings: ComputedRef<ImageSettingsTyped> = computed(() => {
 function onImagesLoadedEvent(images: LoadedImageTyped[]): void {
     loadedImages.value.push(...images);
     selectedImage.value = loadedImages.value[0];
-    if (canvasViewRef.value) {
-        canvasViewRef.value.draw();
-    }
 }
 
-function onUpdateSetting(key: ImageSettingKeyType, value: any): void {
+function onUpdateSetting(keyOrObj: ImageSettingKeyType | Partial<ImageSettingsTyped>, value?: any): void {
     const img = selectedImage.value;
     if (!img) return;
 
-    imageSettings.value[img.name] = {
-        ...currentSettings.value,
-        [key]: value,
-    };
-    // TODO
-    // drawGrid();
-}
-
-function onZoomChanged(zoom: number): void {
-    onUpdateSetting('zoom', zoom);
+    const current = currentSettings.value;
+    const newSettings = typeof keyOrObj === 'string' ? { ...current, [keyOrObj]: value } : { ...current, ...keyOrObj };
+    imageSettings.value[img.name] = newSettings;
 }
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -99,12 +89,9 @@ const rows = ref<number>(-1);
 const exportFormat = ref<'png' | 'jpeg'>(localStorage.getItem('splicer-format') === 'jpeg' ? 'jpeg' : 'png');
 const loading = ref(false);
 const skippedTiles = ref<number[]>([]);
-const skippedTilesPositions = ref<{ x: number; y: number; h: number; w: number }[]>([]);
 const progressValue = ref(0);
 const progressBufferValue = ref(0);
-const filenamePrefix = ref<string>(localStorage.getItem('splicer-prefix') || 'slice');
-
-const currentImage = computed(() => selectedImage.value?.image || null);
+const filenamePrefix = ref<string>('slice');
 const exportOnlySelected = ref<boolean>(false);
 const exportedZipBlob = ref<Blob | null>(null);
 const exportSummary = ref('');
@@ -112,12 +99,6 @@ const showSnackbar = ref(false);
 const zoom = ref(1);
 const offsetX = ref(0);
 const offsetY = ref(0);
-
-watch(filenamePrefix, (val) => localStorage.setItem('splicer-prefix', val));
-watch(selectedImage, () => {
-    // console.error('selected image changed');
-    resetView();
-});
 
 async function sliceImage(): Promise<void> {
     if (!loadedImages.value.length) return;
@@ -218,13 +199,6 @@ function downloadZip(): void {
 </script>
 
 <style scoped lang="scss">
-.skipped-overlay {
-    position: absolute;
-    border: 1px solid orange;
-    background: rgb(255 255 0 / 30%);
-    pointer-events: auto;
-}
-
 /* stylelint-disable-next-line selector-class-pattern */
 .v-progress-linear__bar {
     transition: width 0.4s ease-in-out;

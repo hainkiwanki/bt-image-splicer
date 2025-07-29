@@ -8,7 +8,7 @@ export interface ImageSettingsTyped {
     prefix: string;
 }
 
-export type ImageSettingKeyType = 'cols' | 'rows' | 'format' | 'prefix' | 'zoom';
+export type ImageSettingKeyType = 'cols' | 'rows' | 'format' | 'prefix' | 'zoom' | 'offsetX' | 'offsetY';
 
 export function getDefaultSettings(): ImageSettingsTyped {
     return {
