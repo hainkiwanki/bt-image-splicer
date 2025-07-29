@@ -39,33 +39,18 @@
                         </v-btn>
                     </template>
                 </v-snackbar>
-                <div class="canvas-wrapper">
-                    <canvas ref="canvasRef" class="preview-canvas" @wheel="onWheel" @mousedown="onCanvasMouseDown" @mousemove="onCanvasMouseMove" @mouseup="onCanvasMouseUp" />
-                    <div
-                        v-if="!isPanning"
-                        v-for="(tile, index) in skippedTilesPositions"
-                        :key="index"
-                        class="skipped-overlay"
-                        :style="{
-                            left: `${tile.x}px`,
-                            top: `${tile.y}px`,
-                            width: `${tile.w}px`,
-                            height: `${tile.h}px`,
-                        }"
-                    >
-                        <v-tooltip activator="parent" location="top"> Skipped tile: empty </v-tooltip>
-                    </div>
-                </div>
+                <canvas-view ref="canvasViewRef" :current-settings="currentSettings" :image="selectedImage?.image" @on-zoom-changed="onZoomChanged" />
             </v-container>
         </v-main>
     </v-app>
 </template>
 
 <script setup lang="ts">
-import { type ComputedRef, computed, ref, watch } from 'vue';
+import { type ComputedRef, type Ref, computed, ref, watch } from 'vue';
 
 import JSZip from 'jszip';
 
+import CanvasView from '@/components/CanvasView.vue';
 import ImageSettings from '@/components/ImageSettings.vue';
 import ImageUploader from '@/components/ImageUploader.vue';
 import { type ImageSettingKeyType, type ImageSettingsTyped, getDefaultSettings } from '@/types/imageSettingsTyped.mjs';
@@ -75,20 +60,21 @@ import SlicerWorker from '@/worker/slicer.worker?worker';
 const imageSettings = ref<Record<string, ImageSettingsTyped>>({});
 const loadedImages = ref<LoadedImageTyped[]>([]);
 const selectedImage = ref<LoadedImageTyped | null>(null);
-
+const canvasViewRef: Ref<InstanceType<typeof CanvasView> | null> = ref(null);
 const currentSettings: ComputedRef<ImageSettingsTyped> = computed(() => {
     if (!selectedImage.value) {
         return getDefaultSettings();
     }
 
-    const name = selectedImage.value.name;
-    return imageSettings.value[name] ?? getDefaultSettings();
+    return imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
 });
 
 function onImagesLoadedEvent(images: LoadedImageTyped[]): void {
     loadedImages.value.push(...images);
     selectedImage.value = loadedImages.value[0];
-    drawGrid();
+    if (canvasViewRef.value) {
+        canvasViewRef.value.draw();
+    }
 }
 
 function onUpdateSetting(key: ImageSettingKeyType, value: any): void {
@@ -99,8 +85,12 @@ function onUpdateSetting(key: ImageSettingKeyType, value: any): void {
         ...currentSettings.value,
         [key]: value,
     };
+    // TODO
+    // drawGrid();
+}
 
-    drawGrid();
+function onZoomChanged(zoom: number): void {
+    onUpdateSetting('zoom', zoom);
 }
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -122,82 +112,12 @@ const showSnackbar = ref(false);
 const zoom = ref(1);
 const offsetX = ref(0);
 const offsetY = ref(0);
-let isPanning = ref(false);
-let panStart = { x: 0, y: 0 };
 
 watch(filenamePrefix, (val) => localStorage.setItem('splicer-prefix', val));
-watch(selectedImage, resetView);
-
-function drawGrid(): void {
-    const canvas = canvasRef.value;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx || !currentImage.value) {
-        return;
-    }
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-    // const settings = imageSettings.value[selectedImage.value!.name] ?? getDefaultSettings();
-    // ctx.setTransform(settings.zoom, 0, 0, settings.zoom, settings.offsetX, settings.offsetY);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(currentImage.value, offsetX.value, offsetY.value, currentImage.value.width * zoom.value, currentImage.value.height * zoom.value);
-
-    // const colCount = imageSettings.value[selectedImage.value!.name]?.cols ?? cols.value;
-    const colCount = cols.value;
-    // const rowCount = imageSettings.value[selectedImage.value!.name]?.rows ?? rows.value;
-    const rowCount = rows.value;
-
-    if (colCount <= 0 || rowCount <= 0) {
-        return;
-    }
-
-    const scaledW = (currentImage.value.width * zoom.value) / colCount;
-    const scaledH = (currentImage.value.height * zoom.value) / rowCount;
-    ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-    ctx.lineWidth = 1;
-
-    if (!selectedImage.value) {
-        return;
-    }
-
-    for (let x = 1; x < colCount; x++) {
-        const lineX = offsetX.value + x * scaledW;
-        ctx.beginPath();
-        ctx.moveTo(lineX, offsetY.value);
-        ctx.lineTo(lineX, offsetY.value + currentImage.value.height * zoom.value);
-        ctx.stroke();
-    }
-
-    for (let y = 1; y < rowCount; y++) {
-        const lineY = offsetY.value + y * scaledH;
-        ctx.beginPath();
-        ctx.moveTo(offsetX.value, lineY);
-        ctx.lineTo(offsetX.value + currentImage.value.width * zoom.value, lineY);
-        ctx.stroke();
-    }
-    skippedTilesPositions.value = [];
-    skippedTiles.value.forEach((index) => {
-        const col = index % colCount;
-        const row = Math.floor(index / colCount);
-
-        const ctxTransform = ctx.getTransform();
-
-        const x = offsetX.value * ctxTransform.a + col * scaledW * ctxTransform.a + ctxTransform.e;
-        const x2 = offsetX.value + col * scaledW;
-        const y = offsetY.value * ctxTransform.a + row * scaledH * ctxTransform.a + ctxTransform.f;
-        const y2 = offsetY.value + row * scaledH;
-
-        skippedTilesPositions.value.push({
-            x: x,
-            y: y,
-            w: scaledW * ctxTransform.a,
-            h: scaledH * ctxTransform.a,
-        });
-
-        ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
-        ctx.fillRect(x2, y2, scaledW, scaledH);
-    });
-}
+watch(selectedImage, () => {
+    // console.error('selected image changed');
+    resetView();
+});
 
 async function sliceImage(): Promise<void> {
     if (!loadedImages.value.length) return;
@@ -212,13 +132,10 @@ async function sliceImage(): Promise<void> {
         progressValue.value = 0;
         progressBufferValue.value = 0;
 
-        // const colCount = imageSettings.value[name]?.cols ?? cols.value;
-        // const rowCount = imageSettings.value[name]?.rows ?? rows.value;
-        // const format = imageSettings.value[name]?.format ?? exportFormat.value;
+        const colCount = imageSettings.value[name]?.cols ?? cols.value;
+        const rowCount = imageSettings.value[name]?.rows ?? rows.value;
+        const format = imageSettings.value[name]?.format ?? exportFormat.value;
 
-        const colCount = cols.value;
-        const rowCount = rows.value;
-        const format = exportFormat.value;
         if (colCount <= 0 || rowCount <= 0) {
             continue;
         }
@@ -279,14 +196,16 @@ async function sliceImage(): Promise<void> {
     exportSummary.value = `Exported ${totalSlices} slices from ${loadedImages.value.length} image${loadedImages.value.length > 1 ? 's' : ''}.`;
     showSnackbar.value = true;
     loading.value = false;
-    drawGrid();
+    // TODO
+    // drawGrid();
 }
 
 function resetView(): void {
     zoom.value = 1;
     offsetX.value = 0;
     offsetY.value = 0;
-    drawGrid();
+    // TODO
+    // drawGrid();
 }
 
 function downloadZip(): void {
@@ -296,68 +215,9 @@ function downloadZip(): void {
     link.download = 'slices.zip';
     link.click();
 }
-
-function onWheel(e: WheelEvent): void {
-    e.preventDefault();
-    if (!selectedImage.value) {
-        return;
-    }
-    const delta = e.deltaY < 0 ? 0.1 : -0.1;
-    // const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
-    // settings.zoom = Math.min(Math.max(0.1, settings.zoom + delta), 5);
-    // imageSettings.value[selectedImage.value.name] = settings;
-    drawGrid();
-}
-
-function onCanvasMouseDown(e: MouseEvent): void {
-    // if (!selectedImage.value || !imageSettings.value) {
-    //     return;
-    // }
-    // isPanning.value = true;
-    // const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
-    // panStart = { x: e.clientX - settings.offsetX, y: e.clientY - settings.offsetY };
-}
-
-function onCanvasMouseMove(e: MouseEvent): void {
-    // if (!isPanning.value || !selectedImage.value || !imageSettings.value) {
-    //     return;
-    // }
-    // const settings = imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
-    // settings.offsetX = e.clientX - panStart.x;
-    // settings.offsetY = e.clientY - panStart.y;
-    // imageSettings.value[selectedImage.value.name] = settings;
-    // drawGrid();
-}
-
-function onCanvasMouseUp(): void {
-    isPanning.value = false;
-}
 </script>
 
 <style scoped lang="scss">
-.canvas-wrapper {
-    position: relative;
-    max-width: 100%;
-    max-height: 80vh;
-    margin-top: 1rem;
-    border: 2px dashed #ccc;
-    border-radius: 8px;
-    overflow: auto;
-    transition: border-color 0.3s ease;
-
-    &:hover {
-        border-color: #1976d2;
-    }
-}
-
-.preview-canvas {
-    display: block;
-    width: 100%;
-    height: auto;
-    max-width: 100%;
-    transition: transform 0.3s ease;
-}
-
 .skipped-overlay {
     position: absolute;
     border: 1px solid orange;
