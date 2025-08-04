@@ -10,9 +10,14 @@
             "options": {
                 "singleQuote": false
             }
+        },
+        {
+            "files": "*.vue",
+            "options": {
+                "printWidth": 120
+            }
         }
     ],
-
     "plugins": ["@trivago/prettier-plugin-sort-imports"],
     "importOrder": ["^vue", "^@?\\w", "^@/.*", "^[./]"],
     "importOrderSeparation": true,

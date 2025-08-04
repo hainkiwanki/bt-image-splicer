@@ -3,23 +3,52 @@
         <v-main>
             <v-container>
                 <h1 class="text-h4 mb-4">Image Splicer</h1>
-
                 <image-uploader @images-loaded="onImagesLoadedEvent" />
-                <image-settings v-if="selectedImage" :settings="currentSettings" @update-setting="onUpdateSetting" @detection-method="onDetectionMethod"></image-settings>
+                <image-settings
+                    v-if="selectedImage"
+                    :settings="currentSettings"
+                    @update-setting="onUpdateSetting"
+                    @detection-method="onDetectionMethod"
+                ></image-settings>
 
                 <v-row dense v-if="loadedImages.length > 1">
                     <v-col cols="6" md="6">
-                        <v-select label="Select Image" :items="loadedImages" item-title="name" :item-value="(item) => item" v-model="selectedImage" />
+                        <v-select
+                            label="Select Image"
+                            :items="loadedImages"
+                            item-title="name"
+                            :item-value="(item) => item"
+                            v-model="selectedImage"
+                        />
                     </v-col>
                     <v-col cols="6" md="6">
-                        <v-switch v-model="exportOnlySelected" :label="`Export only ${selectedImage?.name} - ${selectedImage?.width}×${selectedImage?.height}`" />
+                        <v-switch
+                            v-model="exportOnlySelected"
+                            :label="`Export only ${selectedImage?.name} - ${selectedImage?.width}×${selectedImage?.height}`"
+                        />
                     </v-col>
                 </v-row>
 
-                <v-progress-linear v-if="loading" :model-value="progressValue" :value="progressValue" :buffer-value="progressBufferValue" color="primary" height="6" />
+                <v-progress-linear
+                    v-if="loading"
+                    :model-value="progressValue"
+                    :value="progressValue"
+                    :buffer-value="progressBufferValue"
+                    color="primary"
+                    height="6"
+                />
                 <v-row v-if="exportedZipBlob">
                     <v-col cols="12">
-                        <v-btn v-if="exportedZipBlob" color="primary" style="width: 100%" variant="elevated" size="large" prepend-icon="mdi-download" @click="downloadZip">Download ZIP</v-btn>
+                        <v-btn
+                            v-if="exportedZipBlob"
+                            color="primary"
+                            style="width: 100%"
+                            variant="elevated"
+                            size="large"
+                            prepend-icon="mdi-download"
+                            @click="downloadZip"
+                            >Download ZIP</v-btn
+                        >
                     </v-col>
                 </v-row>
                 <v-row dense class="mb-4">
@@ -31,7 +60,13 @@
                     </v-col>
                 </v-row>
 
-                <v-snackbar v-model="showSnackbar" color="green" elevation="8" location="bottom right" transition="scale-transition">
+                <v-snackbar
+                    v-model="showSnackbar"
+                    color="green"
+                    elevation="8"
+                    location="bottom right"
+                    transition="scale-transition"
+                >
                     {{ exportSummary }}
                     <template #actions>
                         <v-btn icon @click="showSnackbar = false">
@@ -40,7 +75,13 @@
                     </template>
                 </v-snackbar>
 
-                <canvas-view ref="canvasViewRef" :current-settings="currentSettings" :image="selectedImage?.image" :skipped-tiles="skippedTiles" @update-setting="onUpdateSetting" />
+                <canvas-view
+                    ref="canvasViewRef"
+                    :current-settings="currentSettings"
+                    :image="selectedImage?.image"
+                    :skipped-tiles="skippedTiles"
+                    @update-setting="onUpdateSetting"
+                />
             </v-container>
         </v-main>
     </v-app>
@@ -60,6 +101,8 @@ import type { LoadedImageTyped } from '@/types/loadedImageTyped.mjs';
 import { detectionMethods } from '@/utils/detection/index.mjs';
 import SlicerWorker from '@/worker/slicer.worker?worker';
 
+const cols = ref<number>(-1);
+const rows = ref<number>(-1);
 const imageSettings = ref<Record<string, ImageSettingsTyped>>({});
 const loadedImages = ref<LoadedImageTyped[]>([]);
 const selectedImage = ref<LoadedImageTyped | null>(null);
@@ -98,11 +141,10 @@ async function onDetectionMethod(method: DetectionMethodName): Promise<void> {
         return;
     }
     const result = await detectionMethods[method](selectedImage.value.image, ctx);
-    console.error(result);
+    cols.value = result.cols;
+    rows.value = result.rows;
 }
 
-const cols = ref<number>(-1);
-const rows = ref<number>(-1);
 const exportFormat = ref<'png' | 'jpeg'>(localStorage.getItem('splicer-format') === 'jpeg' ? 'jpeg' : 'png');
 const loading = ref(false);
 const skippedTiles = ref<number[]>([]);

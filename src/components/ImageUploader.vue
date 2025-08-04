@@ -1,26 +1,18 @@
 <template>
-    <v-file-input label="Upload image(s)" accept="image/*" chips @change="handleFileUpload" v-model="refFiles" multiple>
-        <template v-slot:selection="{ fileNames }">
-            <template v-for="(fileName, index) in fileNames" :key="fileName">
-                <v-chip v-if="index < 3" color="primary" size="small" label>
-                    {{ fileName }}
-                </v-chip>
-            </template>
-        </template>
-    </v-file-input>
     <div
-        class="drop-area mb-4"
+        class="upload-box"
         :class="{ dragging: isDragging }"
+        @click="fileInputRef?.click()"
         @dragover.prevent="isDragging = true"
         @dragleave="isDragging = false"
-        @drop="
-            (e) => {
-                isDragging = false;
-                handleDrop(e);
-            }
-        "
+        @drop="onDrop"
     >
-        <p class="text-subtitle-2">Drag & drop images or folders here</p>
+        <input ref="fileInputRef" type="file" accept="image/*" multiple class="hidden-input" @change="onFileChange" />
+
+        <div class="text-content">
+            <strong>Drag and drop an image here</strong>
+            <div class="text-caption">Or browse files</div>
+        </div>
     </div>
 </template>
 
@@ -29,23 +21,44 @@ import { ref } from 'vue';
 
 import type { LoadedImageTyped } from '@/types/loadedImageTyped.mjs';
 
-const refFiles = ref<File[]>([]);
 const isDragging = ref(false);
+const fileInputRef = ref<HTMLInputElement | null>(null);
 
 const emit = defineEmits<{
     (e: 'images-loaded', images: LoadedImageTyped[]): void;
 }>();
 
-async function handleFileUpload(e: Event): Promise<void> {
-    const input = e.target as HTMLInputElement;
-    if (!input.files?.length) {
+function onFileChange(e: Event): void {
+    const files = (e.target as HTMLInputElement)?.files;
+    console.error(files);
+    if (files) {
+        loadFiles([...files]);
+    }
+}
+
+function onDrop(e: DragEvent): void {
+    e.preventDefault();
+    isDragging.value = false;
+
+    const items = e.dataTransfer?.items;
+    if (!items) {
         return;
     }
 
+    for (const item of items) {
+        const entry = item.webkitGetAsEntry?.();
+        if (entry) {
+            traverseEntry(entry);
+        }
+    }
+}
+
+async function loadFiles(files: File[]): Promise<void> {
     const loadedImages: LoadedImageTyped[] = [];
-    for (const file of input.files) {
+
+    for (const file of files) {
         if (!file.type.startsWith('image/')) {
-            return;
+            continue;
         }
 
         const img = new Image();
@@ -63,26 +76,10 @@ async function handleFileUpload(e: Event): Promise<void> {
                 res();
             };
         });
-
-        if (loadedImages.length > 0) {
-            emit('images-loaded', loadedImages);
-        }
-    }
-}
-
-function handleDrop(e: DragEvent): void {
-    e.preventDefault();
-    isDragging.value = false;
-    const items = e.dataTransfer?.items;
-    if (!items) {
-        return;
     }
 
-    for (const item of items) {
-        const entry = item.webkitGetAsEntry?.();
-        if (entry) {
-            traverseEntry(entry);
-        }
+    if (loadedImages.length) {
+        emit('images-loaded', loadedImages);
     }
 }
 
@@ -119,22 +116,36 @@ function traverseEntry(entry: any, path = ''): void {
 }
 </script>
 
-<style lang="scss" scoped>
-.drop-area {
-    padding: 1rem;
-    border: 2px dashed #aaa;
+<style scoped lang="scss">
+.upload-box {
+    padding: 2rem;
+    border: 2px dashed #ccc;
     border-radius: 8px;
-    background: #f9f9f9;
+    background-color: #fff;
     text-align: center;
-    transition: border-color 0.3s ease;
-
-    &:hover {
-        border-color: #1976d2;
-    }
+    transition: border-color 0.2s;
+    cursor: pointer;
 
     &.dragging {
         background-color: #e3f2fd;
         border-color: #1976d2;
     }
+
+    .text-content {
+        font-size: 0.9rem;
+
+        strong {
+            display: block;
+            margin-bottom: 0.25rem;
+        }
+
+        .text-caption {
+            color: #666;
+        }
+    }
+}
+
+.hidden-input {
+    display: none;
 }
 </style>
