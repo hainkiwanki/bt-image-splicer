@@ -35,6 +35,7 @@ const emit = defineEmits<{
 
 defineExpose({
     draw,
+    getCanvas: () => canvasRef.value,
 });
 
 let isPanning = ref(false);

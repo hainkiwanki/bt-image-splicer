@@ -5,7 +5,7 @@
                 <h1 class="text-h4 mb-4">Image Splicer</h1>
 
                 <image-uploader @images-loaded="onImagesLoadedEvent" />
-                <image-settings v-if="selectedImage" :settings="currentSettings" @update-setting="onUpdateSetting"></image-settings>
+                <image-settings v-if="selectedImage" :settings="currentSettings" @update-setting="onUpdateSetting" @detection-method="onDetectionMethod"></image-settings>
 
                 <v-row dense v-if="loadedImages.length > 1">
                     <v-col cols="6" md="6">
@@ -22,7 +22,6 @@
                         <v-btn v-if="exportedZipBlob" color="primary" style="width: 100%" variant="elevated" size="large" prepend-icon="mdi-download" @click="downloadZip">Download ZIP</v-btn>
                     </v-col>
                 </v-row>
-
                 <v-row dense class="mb-4">
                     <v-col cols="6" md="6">
                         <v-btn block color="primary" @click="sliceImage"> Export Slices </v-btn>
@@ -31,6 +30,7 @@
                         <v-btn block color="secondary" @click="resetView()">Reset</v-btn>
                     </v-col>
                 </v-row>
+
                 <v-snackbar v-model="showSnackbar" color="green" elevation="8" location="bottom right" transition="scale-transition">
                     {{ exportSummary }}
                     <template #actions>
@@ -39,6 +39,7 @@
                         </v-btn>
                     </template>
                 </v-snackbar>
+
                 <canvas-view ref="canvasViewRef" :current-settings="currentSettings" :image="selectedImage?.image" :skipped-tiles="skippedTiles" @update-setting="onUpdateSetting" />
             </v-container>
         </v-main>
@@ -53,8 +54,10 @@ import JSZip from 'jszip';
 import CanvasView from '@/components/CanvasView.vue';
 import ImageSettings from '@/components/ImageSettings.vue';
 import ImageUploader from '@/components/ImageUploader.vue';
+import type { DetectionMethodName } from '@/types/detectionMethodName.mjs';
 import { type ImageSettingKeyType, type ImageSettingsTyped, getDefaultSettings } from '@/types/imageSettingsTyped.mjs';
 import type { LoadedImageTyped } from '@/types/loadedImageTyped.mjs';
+import { detectionMethods } from '@/utils/detection/index.mjs';
 import SlicerWorker from '@/worker/slicer.worker?worker';
 
 const imageSettings = ref<Record<string, ImageSettingsTyped>>({});
@@ -70,7 +73,9 @@ const currentSettings: ComputedRef<ImageSettingsTyped> = computed(() => {
 });
 
 function onImagesLoadedEvent(images: LoadedImageTyped[]): void {
-    loadedImages.value.push(...images);
+    const existingNames = new Set(loadedImages.value.map((img) => img.name));
+    const newImages = images.filter((img) => !existingNames.has(img.name));
+    loadedImages.value.push(...newImages);
     selectedImage.value = loadedImages.value[0];
 }
 
@@ -83,7 +88,19 @@ function onUpdateSetting(keyOrObj: ImageSettingKeyType | Partial<ImageSettingsTy
     imageSettings.value[img.name] = newSettings;
 }
 
-const canvasRef = ref<HTMLCanvasElement | null>(null);
+async function onDetectionMethod(method: DetectionMethodName): Promise<void> {
+    if (!selectedImage.value) {
+        return;
+    }
+    const canvasElement = canvasViewRef.value?.getCanvas();
+    const ctx = canvasElement?.getContext('2d');
+    if (!ctx) {
+        return;
+    }
+    const result = await detectionMethods[method](selectedImage.value.image, ctx);
+    console.error(result);
+}
+
 const cols = ref<number>(-1);
 const rows = ref<number>(-1);
 const exportFormat = ref<'png' | 'jpeg'>(localStorage.getItem('splicer-format') === 'jpeg' ? 'jpeg' : 'png');
@@ -163,7 +180,7 @@ async function sliceImage(): Promise<void> {
             if (emptyIndices.includes(t)) {
                 continue;
             }
-            const baseName = name.replace(/\.[^/.]+$/, ''); // e.g. "Gemss"
+            const baseName = name.replace(/\.[^/.]+$/, '');
             const folderPath = imgObj.folder ?? '';
             const fullPath = `${folderPath}/${baseName}/${filenamePrefix.value}-${t + 1}.${format}`.replace(/^\/+/, '');
             zip.file(fullPath, slices[sliceIndex]);
@@ -177,16 +194,12 @@ async function sliceImage(): Promise<void> {
     exportSummary.value = `Exported ${totalSlices} slices from ${loadedImages.value.length} image${loadedImages.value.length > 1 ? 's' : ''}.`;
     showSnackbar.value = true;
     loading.value = false;
-    // TODO
-    // drawGrid();
 }
 
 function resetView(): void {
     zoom.value = 1;
     offsetX.value = 0;
     offsetY.value = 0;
-    // TODO
-    // drawGrid();
 }
 
 function downloadZip(): void {
