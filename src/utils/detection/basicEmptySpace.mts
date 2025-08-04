@@ -1,10 +1,8 @@
 import type { DetectionMethod } from '@/types/detectionMethod.mjs';
 import type { DetectionResult } from '@/types/detectionResult.mjs';
 
-export const basicEmptySpaceDetection: DetectionMethod = async (image, ctx): Promise<DetectionResult> => {
-    const { width, height } = image;
-    ctx.drawImage(image, 0, 0, width, height);
-    const { data } = ctx.getImageData(0, 0, width, height);
+export const basicEmptySpaceDetection: DetectionMethod = async (imgData): Promise<DetectionResult> => {
+    const { width, height, data } = imgData;
 
     const isRowEmpty = (y: number): boolean => {
         for (let x = 0; x < width; x++) {

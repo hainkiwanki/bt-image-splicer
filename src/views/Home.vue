@@ -2,64 +2,76 @@
     <v-app>
         <v-main>
             <v-container>
-                <h1 class="text-h4 mb-4">Image Splicer</h1>
-                <image-uploader @images-loaded="onImagesLoadedEvent" />
-                <image-settings
-                    v-if="selectedImage"
-                    :settings="currentSettings"
-                    @update-setting="onUpdateSetting"
-                    @detection-method="onDetectionMethod"
-                ></image-settings>
+                <h1 class="text-h4 mb-2">Slice your images</h1>
+                <p class="mb-6">Upload your image and specify the number of rows and columns to slice it into.</p>
 
-                <v-row dense v-if="loadedImages.length > 1">
-                    <v-col cols="6" md="6">
-                        <v-select
-                            label="Select Image"
-                            :items="loadedImages"
-                            item-title="name"
-                            :item-value="(item) => item"
-                            v-model="selectedImage"
-                        />
-                    </v-col>
-                    <v-col cols="6" md="6">
-                        <v-switch
-                            v-model="exportOnlySelected"
-                            :label="`Export only ${selectedImage?.name} - ${selectedImage?.width}×${selectedImage?.height}`"
-                        />
-                    </v-col>
-                </v-row>
+                <div v-if="!isDoneLoadingImages">
+                    <image-uploader @images-loaded="onImagesLoadedEvent" />
+                </div>
+                <div v-else>
+                    <image-settings
+                        v-if="selectedImage"
+                        :settings="currentSettings"
+                        @update-setting="onUpdateSetting"
+                        @detection-method="onDetectionMethod"
+                    ></image-settings>
 
-                <v-progress-linear
-                    v-if="loading"
-                    :model-value="progressValue"
-                    :value="progressValue"
-                    :buffer-value="progressBufferValue"
-                    color="primary"
-                    height="6"
-                />
-                <v-row v-if="exportedZipBlob">
-                    <v-col cols="12">
-                        <v-btn
-                            v-if="exportedZipBlob"
-                            color="primary"
-                            style="width: 100%"
-                            variant="elevated"
-                            size="large"
-                            prepend-icon="mdi-download"
-                            @click="downloadZip"
-                            >Download ZIP</v-btn
-                        >
-                    </v-col>
-                </v-row>
-                <v-row dense class="mb-4">
-                    <v-col cols="6" md="6">
-                        <v-btn block color="primary" @click="sliceImage"> Export Slices </v-btn>
-                    </v-col>
-                    <v-col cols="6" md="6">
-                        <v-btn block color="secondary" @click="resetView()">Reset</v-btn>
-                    </v-col>
-                </v-row>
+                    <v-row dense v-if="loadedImages.length > 1">
+                        <v-col cols="6" md="6">
+                            <v-select
+                                label="Select Image"
+                                :items="loadedImages"
+                                item-title="name"
+                                :item-value="(item) => item"
+                                v-model="selectedImage"
+                            />
+                        </v-col>
+                        <v-col cols="6" md="6">
+                            <v-switch
+                                v-model="exportOnlySelected"
+                                :label="`Export only ${selectedImage?.name} - ${selectedImage?.width}×${selectedImage?.height}`"
+                            />
+                        </v-col>
+                    </v-row>
 
+                    <v-progress-linear
+                        v-if="loading"
+                        :model-value="progressValue"
+                        :value="progressValue"
+                        :buffer-value="progressBufferValue"
+                        color="primary"
+                        height="6"
+                    />
+                    <v-row v-if="exportedZipBlob">
+                        <v-col cols="12">
+                            <v-btn
+                                v-if="exportedZipBlob"
+                                color="primary"
+                                style="width: 100%"
+                                variant="elevated"
+                                size="large"
+                                prepend-icon="mdi-download"
+                                @click="downloadZip"
+                                >Download ZIP</v-btn
+                            >
+                        </v-col>
+                    </v-row>
+                    <v-row dense class="mb-4">
+                        <v-col cols="6" md="6">
+                            <v-btn block color="primary" @click="sliceImage"> Export Slices </v-btn>
+                        </v-col>
+                        <v-col cols="6" md="6">
+                            <v-btn block color="secondary" @click="resetView()">Reset</v-btn>
+                        </v-col>
+                    </v-row>
+                    <canvas-view
+                        ref="canvasViewRef"
+                        :current-settings="currentSettings"
+                        :image="selectedImage?.image"
+                        :skipped-tiles="skippedTiles"
+                        @update-setting="onUpdateSetting"
+                    />
+                </div>
                 <v-snackbar
                     v-model="showSnackbar"
                     color="green"
@@ -74,14 +86,6 @@
                         </v-btn>
                     </template>
                 </v-snackbar>
-
-                <canvas-view
-                    ref="canvasViewRef"
-                    :current-settings="currentSettings"
-                    :image="selectedImage?.image"
-                    :skipped-tiles="skippedTiles"
-                    @update-setting="onUpdateSetting"
-                />
             </v-container>
         </v-main>
     </v-app>
@@ -103,6 +107,7 @@ import SlicerWorker from '@/worker/slicer.worker?worker';
 
 const cols = ref<number>(-1);
 const rows = ref<number>(-1);
+const isDoneLoadingImages = ref<boolean>(false);
 const imageSettings = ref<Record<string, ImageSettingsTyped>>({});
 const loadedImages = ref<LoadedImageTyped[]>([]);
 const selectedImage = ref<LoadedImageTyped | null>(null);
@@ -120,6 +125,7 @@ function onImagesLoadedEvent(images: LoadedImageTyped[]): void {
     const newImages = images.filter((img) => !existingNames.has(img.name));
     loadedImages.value.push(...newImages);
     selectedImage.value = loadedImages.value[0];
+    isDoneLoadingImages.value = true;
 }
 
 function onUpdateSetting(keyOrObj: ImageSettingKeyType | Partial<ImageSettingsTyped>, value?: any): void {
@@ -140,7 +146,11 @@ async function onDetectionMethod(method: DetectionMethodName): Promise<void> {
     if (!ctx) {
         return;
     }
-    const result = await detectionMethods[method](selectedImage.value.image, ctx);
+    const result = await detectionMethods[method]({
+        data: ctx.getImageData(0, 0, selectedImage.value.width, selectedImage.value.height).data,
+        width: selectedImage.value.width,
+        height: selectedImage.value.height,
+    });
     cols.value = result.cols;
     rows.value = result.rows;
 }

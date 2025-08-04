@@ -36,7 +36,7 @@ function onFileChange(e: Event): void {
     }
 }
 
-function onDrop(e: DragEvent): void {
+async function onDrop(e: DragEvent): Promise<void> {
     e.preventDefault();
     isDragging.value = false;
 
@@ -45,11 +45,18 @@ function onDrop(e: DragEvent): void {
         return;
     }
 
+    const allImages: LoadedImageTyped[] = [];
+
     for (const item of items) {
         const entry = item.webkitGetAsEntry?.();
         if (entry) {
-            traverseEntry(entry);
+            const images = await traverseEntry(entry);
+            allImages.push(...images);
         }
+    }
+
+    if (allImages.length) {
+        emit('images-loaded', allImages);
     }
 }
 
@@ -83,36 +90,39 @@ async function loadFiles(files: File[]): Promise<void> {
     }
 }
 
-function traverseEntry(entry: any, path = ''): void {
-    if (entry.isFile) {
-        entry.file((file: File) => {
-            if (!file.type.startsWith('image/')) {
-                return;
-            }
-            const img = new Image();
-            img.src = URL.createObjectURL(file);
+async function traverseEntry(entry: any, path = ''): Promise<LoadedImageTyped[]> {
+    const results: LoadedImageTyped[] = [];
 
-            img.onload = () => {
-                emit('images-loaded', [
-                    {
-                        file,
-                        image: img,
-                        name: file.name,
-                        width: img.width,
-                        height: img.height,
-                        folder: path,
-                    },
-                ]);
-            };
+    if (entry.isFile) {
+        const file: File = await new Promise((res) => entry.file(res));
+        if (!file.type.startsWith('image/')) return results;
+
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+
+        await new Promise<void>((res) => {
+            img.onload = () => res();
+        });
+
+        results.push({
+            file,
+            image: img,
+            name: file.name,
+            width: img.width,
+            height: img.height,
+            folder: path,
         });
     } else if (entry.isDirectory) {
         const reader = entry.createReader();
-        reader.readEntries((entries: any[]) => {
-            for (const subEntry of entries) {
-                traverseEntry(subEntry, `${path}${entry.name}/`);
-            }
-        });
+        const entries: any[] = await new Promise((res) => reader.readEntries(res));
+
+        for (const subEntry of entries) {
+            const subImages = await traverseEntry(subEntry, `${path}${entry.name}/`);
+            results.push(...subImages);
+        }
     }
+
+    return results;
 }
 </script>
 

@@ -1,11 +1,8 @@
 import type { DetectionMethod } from '@/types/detectionMethod.mjs';
 import type { DetectionResult } from '@/types/detectionResult.mjs';
 
-export const edgeDetection: DetectionMethod = async (image, ctx): Promise<DetectionResult> => {
-    const { width, height } = image;
-    ctx.clearRect(0, 0, width, height);
-    ctx.drawImage(image, 0, 0, width, height);
-    const { data } = ctx.getImageData(0, 0, width, height);
+export const edgeDetection: DetectionMethod = async (imgData): Promise<DetectionResult> => {
+    const { width, height, data } = imgData;
 
     const grayscale = new Uint8ClampedArray(width * height);
     for (let i = 0; i < grayscale.length; i++) {

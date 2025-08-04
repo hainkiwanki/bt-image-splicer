@@ -1,4 +1,9 @@
 import type { DetectionResult } from './detectionResult.mts';
-import type { HTMLImageElementWithData } from './htmlImageElementWithData.mts';
 
-export type DetectionMethod = (image: HTMLImageElementWithData, ctx: CanvasRenderingContext2D) => Promise<DetectionResult>;
+export interface DetectionData {
+    data: ImageDataArray;
+    width: number;
+    height: number;
+}
+
+export type DetectionMethod = (imgData: DetectionData) => Promise<DetectionResult>;

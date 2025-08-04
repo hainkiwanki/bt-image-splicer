@@ -53,7 +53,7 @@ const emit = defineEmits<{
 }>();
 
 const selectedDetection = ref<DetectionMethodName>('hybrid');
-const detectionOptions: DetectionMethodName[] = ['emptySpace', 'edgeDetection', 'metadataHeuristic', 'hybrid'];
+const detectionOptions: DetectionMethodName[] = ['emptySpace', 'edgeDetection', 'hybrid'];
 
 watch(
     () => selectedDetection.value,

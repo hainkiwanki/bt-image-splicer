@@ -1,6 +1,12 @@
 <template>
     <div class="canvas-wrapper">
-        <canvas ref="canvasRef" class="preview-canvas" @mousedown="onCanvasMouseDown" @mousemove="onCanvasMouseMove" @mouseup="onCanvasMouseUp" />
+        <canvas
+            ref="canvasRef"
+            class="preview-canvas"
+            @mousedown="onCanvasMouseDown"
+            @mousemove="onCanvasMouseMove"
+            @mouseup="onCanvasMouseUp"
+        />
         <div
             v-if="!isPanning"
             v-for="(tile, index) in skippedTiles"
@@ -72,6 +78,10 @@ watch(
     }
 );
 
+onMounted(() => {
+    draw();
+});
+
 function onWheel(e: WheelEvent): void {
     e.preventDefault();
     const delta = e.deltaY < 0 ? 0.1 : -0.1;
@@ -104,6 +114,7 @@ function draw(): void {
     if (!ctx || !canvas || !image) {
         return;
     }
+
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width;
     canvas.height = rect.height;
