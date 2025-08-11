@@ -32,9 +32,7 @@
             />
         </v-col>
     </v-row>
-    <v-row dense align="center">
-        <v-select v-model="selectedDetection" :items="detectionOptions" label="Auto-detect method" outlined dense />
-    </v-row>
+    <v-select v-model="selectedDetection" :items="detectionOptions" label="Auto-detect method" outlined dense />
 </template>
 
 <script setup lang="ts">

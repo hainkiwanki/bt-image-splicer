@@ -1,9 +1,25 @@
 <template>
     <v-app>
+        <v-app-bar flat color="white" elevation="1">
+            <v-container class="d-flex align-center justify-space-between">
+                <div class="d-flex align-center gap-2">
+                    <v-icon class="me-2" icon="mdi-scissors-cutting" size="24" />
+                    <span class="text-body-1 font-weight-medium">Image Splicer</span>
+                </div>
+
+                <v-btn icon variant="text">
+                    <v-icon icon="mdi-help-circle-outline" />
+                </v-btn>
+            </v-container>
+        </v-app-bar>
         <v-main>
-            <v-container>
-                <h1 class="text-h4 mb-2">Slice your images</h1>
-                <p class="mb-6">Upload your image and specify the number of rows and columns to slice it into.</p>
+            <v-container class="mt-5">
+                <div class="text-center mb-12">
+                    <h1 class="text-h5 font-weight-bold mb-6">Slice your images</h1>
+                    <p class="text-body-2">
+                        Upload your image and specify the number of rows and columns to slice it into.
+                    </p>
+                </div>
 
                 <div v-if="!isDoneLoadingImages">
                     <image-uploader @images-loaded="onImagesLoadedEvent" />
