@@ -1,6 +1,6 @@
 <template>
-    <v-row dense align="center">
-        <v-col cols="6" md="2">
+    <v-row dense class="mb-4" align="center">
+        <v-col cols="12" md="6">
             <v-text-field
                 label="Columns"
                 type="number"
@@ -8,7 +8,8 @@
                 @update:model-value="emit('update-setting', 'cols', $event as unknown as number)"
             />
         </v-col>
-        <v-col cols="6" md="2">
+
+        <v-col cols="12" md="6">
             <v-text-field
                 label="Rows"
                 type="number"
@@ -16,7 +17,8 @@
                 @update:model-value="emit('update-setting', 'rows', $event as unknown as number)"
             />
         </v-col>
-        <v-col cols="12" md="4">
+
+        <v-col cols="12" md="6">
             <v-select
                 label="Export Format"
                 :items="['png', 'jpeg']"
@@ -24,15 +26,19 @@
                 @update:model-value="emit('update-setting', 'format', $event)"
             />
         </v-col>
-        <v-col cols="12" md="4">
+
+        <v-col cols="12" md="6">
             <v-text-field
                 label="Filename Prefix"
                 :model-value="settings.prefix"
                 @update:model-value="emit('update-setting', 'prefix', $event)"
             />
         </v-col>
+
+        <v-col cols="12" md="6">
+            <v-select v-model="selectedDetection" :items="detectionOptions" label="Auto-detect method" outlined dense />
+        </v-col>
     </v-row>
-    <v-select v-model="selectedDetection" :items="detectionOptions" label="Auto-detect method" outlined dense />
 </template>
 
 <script setup lang="ts">
