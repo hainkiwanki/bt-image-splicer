@@ -1,3 +1,5 @@
+import type { DetectionMethodName } from '../utils/detection/detectionMethodName.mts';
+
 export interface ImageSettingsTyped {
     cols: number;
     rows: number;
@@ -6,9 +8,10 @@ export interface ImageSettingsTyped {
     offsetX: number;
     offsetY: number;
     prefix: string;
+    detection: DetectionMethodName;
 }
 
-export type ImageSettingKeyType = 'cols' | 'rows' | 'format' | 'prefix' | 'zoom' | 'offsetX' | 'offsetY';
+export type ImageSettingKeyType = 'cols' | 'rows' | 'format' | 'prefix' | 'zoom' | 'offsetX' | 'offsetY' | 'detection';
 
 export function getDefaultSettings(): ImageSettingsTyped {
     return {
@@ -19,5 +22,6 @@ export function getDefaultSettings(): ImageSettingsTyped {
         offsetX: 0,
         offsetY: 0,
         prefix: 'slice',
+        detection: 'emptySpace',
     };
 }

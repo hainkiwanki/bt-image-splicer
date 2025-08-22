@@ -41,7 +41,7 @@
                                     v-if="selectedImage"
                                     :settings="currentSettings"
                                     @update-setting="onUpdateSetting"
-                                    @detection-method="onDetectionMethod"
+                                    @detection-method-changed="onDetectionMethodChanged"
                                 ></image-settings>
 
                                 <v-row dense v-if="loadedImages.length > 1">
@@ -57,7 +57,7 @@
                                     <v-col cols="6" md="6">
                                         <v-switch
                                             v-model="exportOnlySelected"
-                                            :label="`Export only ${selectedImage?.name} - ${selectedImage?.width}×${selectedImage?.height}`"
+                                            :label="`Export only ${selectedImage?.name}`"
                                         />
                                     </v-col>
                                 </v-row>
@@ -116,22 +116,21 @@
 </template>
 
 <script setup lang="ts">
-import { type ComputedRef, type Ref, computed, ref } from 'vue';
+import { type ComputedRef, type Ref, computed, nextTick, ref, watch } from 'vue';
 
 import JSZip from 'jszip';
 
 import CanvasView from '@/components/CanvasView.vue';
 import ImageSettings from '@/components/ImageSettings.vue';
 import ImageUploader from '@/components/ImageUploader.vue';
-import type { DetectionMethodName } from '@/types/detectionMethodName.mjs';
 import { type ImageSettingKeyType, type ImageSettingsTyped, getDefaultSettings } from '@/types/imageSettingsTyped.mjs';
 import type { LoadedImageTyped } from '@/types/loadedImageTyped.mjs';
+import type { DetectionMethodName } from '@/utils/detection/detectionMethodName.mjs';
 import { detectionMethods } from '@/utils/detection/index.mjs';
 import SlicerWorker from '@/worker/slicer.worker?worker';
 
-const cols = ref<number>(-1);
-const rows = ref<number>(-1);
 const isDoneLoadingImages = ref<boolean>(false);
+const rawImageDataByName = ref<Record<string, ImageData>>({});
 const imageSettings = ref<Record<string, ImageSettingsTyped>>({});
 const loadedImages = ref<LoadedImageTyped[]>([]);
 const selectedImage = ref<LoadedImageTyped | null>(null);
@@ -140,43 +139,62 @@ const currentSettings: ComputedRef<ImageSettingsTyped> = computed(() => {
     if (!selectedImage.value) {
         return getDefaultSettings();
     }
-
     return imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
 });
 
-function onImagesLoadedEvent(images: LoadedImageTyped[]): void {
+watch(selectedImage, async (img) => {
+    if (!img) {
+        return;
+    }
+    await nextTick();
+    const method = currentSettings.value.detection ?? 'emptySpace';
+    await onDetectionMethodChanged(method);
+});
+
+async function onImagesLoadedEvent(images: LoadedImageTyped[]): Promise<void> {
     const existingNames = new Set(loadedImages.value.map((img) => img.name));
     const newImages = images.filter((img) => !existingNames.has(img.name));
     loadedImages.value.push(...newImages);
     selectedImage.value = loadedImages.value[0];
     isDoneLoadingImages.value = true;
+
+    for (const { image, name } of newImages) {
+        const c = document.createElement('canvas');
+        c.width = image.width;
+        c.height = image.height;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(image, 0, 0);
+        rawImageDataByName.value[name] = ctx.getImageData(0, 0, image.width, image.height);
+    }
 }
 
 function onUpdateSetting(keyOrObj: ImageSettingKeyType | Partial<ImageSettingsTyped>, value?: any): void {
     const img = selectedImage.value;
-    if (!img) return;
+    if (!img) {
+        return;
+    }
 
     const current = currentSettings.value;
     const newSettings = typeof keyOrObj === 'string' ? { ...current, [keyOrObj]: value } : { ...current, ...keyOrObj };
     imageSettings.value[img.name] = newSettings;
 }
 
-async function onDetectionMethod(method: DetectionMethodName): Promise<void> {
+async function onDetectionMethodChanged(method: DetectionMethodName): Promise<void> {
     if (!selectedImage.value) {
         return;
     }
-    const canvasElement = canvasViewRef.value?.getCanvas();
-    const ctx = canvasElement?.getContext('2d');
-    if (!ctx) {
+
+    const raw = rawImageDataByName.value[selectedImage.value.name];
+    if (!raw) {
         return;
     }
+
     const result = await detectionMethods[method]({
-        data: ctx.getImageData(0, 0, selectedImage.value.width, selectedImage.value.height).data,
-        width: selectedImage.value.width,
-        height: selectedImage.value.height,
+        data: raw.data,
+        width: raw.width,
+        height: raw.height,
     });
-    cols.value = result.cols;
-    rows.value = result.rows;
+    onUpdateSetting({ cols: result.cols, rows: result.rows });
 }
 
 const exportFormat = ref<'png' | 'jpeg'>(localStorage.getItem('splicer-format') === 'jpeg' ? 'jpeg' : 'png');
@@ -206,8 +224,8 @@ async function sliceImage(): Promise<void> {
         progressValue.value = 0;
         progressBufferValue.value = 0;
 
-        const colCount = imageSettings.value[name]?.cols ?? cols.value;
-        const rowCount = imageSettings.value[name]?.rows ?? rows.value;
+        const colCount = imageSettings.value[name]?.cols;
+        const rowCount = imageSettings.value[name]?.rows;
         const format = imageSettings.value[name]?.format ?? exportFormat.value;
 
         if (colCount <= 0 || rowCount <= 0) {
@@ -260,7 +278,6 @@ async function sliceImage(): Promise<void> {
             const folderPath = imgObj.folder ?? '';
             const fullPath = `${folderPath}/${baseName}/${filenamePrefix.value}-${t + 1}.${format}`.replace(/^\/+/, '');
             zip.file(fullPath, slices[sliceIndex]);
-
             sliceIndex++;
         }
     }
@@ -279,7 +296,9 @@ function resetView(): void {
 }
 
 function downloadZip(): void {
-    if (!exportedZipBlob.value) return;
+    if (!exportedZipBlob.value) {
+        return;
+    }
     const link = document.createElement('a');
     link.href = URL.createObjectURL(exportedZipBlob.value);
     link.download = 'slices.zip';

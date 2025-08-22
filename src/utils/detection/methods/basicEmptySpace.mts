@@ -1,5 +1,5 @@
-import type { DetectionMethod } from '@/types/detectionMethod.mjs';
-import type { DetectionResult } from '@/types/detectionResult.mjs';
+import type { DetectionMethod } from '@/utils/detection/detectionMethod.mjs';
+import type { DetectionResult } from '@/utils/detection/detectionResult.mjs';
 
 export const basicEmptySpaceDetection: DetectionMethod = async (imgData): Promise<DetectionResult> => {
     const { width, height, data } = imgData;

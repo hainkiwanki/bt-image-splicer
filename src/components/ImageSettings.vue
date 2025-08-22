@@ -36,16 +36,26 @@
         </v-col>
 
         <v-col cols="12" md="6">
-            <v-select v-model="selectedDetection" :items="detectionOptions" label="Auto-detect method" outlined dense />
+            <v-select
+                :model-value="settings.detection"
+                :items="detectionOptions"
+                label="Auto-detect method"
+                outlined
+                dense
+                @update:model-value="
+                    (val) => {
+                        emit('update-setting', 'detection', val);
+                        emit('detection-method-changed', val as DetectionMethodName);
+                    }
+                "
+            />
         </v-col>
     </v-row>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-
-import type { DetectionMethodName } from '@/types/detectionMethodName.mjs';
 import type { ImageSettingKeyType, ImageSettingsTyped } from '@/types/imageSettingsTyped.mjs';
+import type { DetectionMethodName } from '@/utils/detection/detectionMethodName.mjs';
 
 defineProps<{
     settings: ImageSettingsTyped;
@@ -53,16 +63,7 @@ defineProps<{
 
 const emit = defineEmits<{
     (e: 'update-setting', key: ImageSettingKeyType, value: any): void;
-    (e: 'detection-method', method: DetectionMethodName): void;
+    (e: 'detection-method-changed', method: DetectionMethodName): void;
 }>();
-
-const selectedDetection = ref<DetectionMethodName>('hybrid');
 const detectionOptions: DetectionMethodName[] = ['emptySpace', 'edgeDetection', 'hybrid'];
-
-watch(
-    () => selectedDetection.value,
-    () => {
-        emit('detection-method', selectedDetection.value);
-    }
-);
 </script>

@@ -30,7 +30,6 @@ const emit = defineEmits<{
 
 function onFileChange(e: Event): void {
     const files = (e.target as HTMLInputElement)?.files;
-    console.error(files);
     if (files) {
         loadFiles([...files]);
     }
