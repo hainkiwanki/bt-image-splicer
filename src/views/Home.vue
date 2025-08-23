@@ -116,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import { type ComputedRef, type Ref, computed, nextTick, ref, watch } from 'vue';
+import { type ComputedRef, type Ref, computed, ref } from 'vue';
 
 import JSZip from 'jszip';
 
@@ -142,15 +142,6 @@ const currentSettings: ComputedRef<ImageSettingsTyped> = computed(() => {
     return imageSettings.value[selectedImage.value.name] ?? getDefaultSettings();
 });
 
-watch(selectedImage, async (img) => {
-    if (!img) {
-        return;
-    }
-    await nextTick();
-    const method = currentSettings.value.detection ?? 'emptySpace';
-    await onDetectionMethodChanged(method);
-});
-
 async function onImagesLoadedEvent(images: LoadedImageTyped[]): Promise<void> {
     const existingNames = new Set(loadedImages.value.map((img) => img.name));
     const newImages = images.filter((img) => !existingNames.has(img.name));
@@ -165,36 +156,50 @@ async function onImagesLoadedEvent(images: LoadedImageTyped[]): Promise<void> {
         const ctx = c.getContext('2d')!;
         ctx.drawImage(image, 0, 0);
         rawImageDataByName.value[name] = ctx.getImageData(0, 0, image.width, image.height);
+        tryAndDetectColsAndRows(rawImageDataByName.value[name], name);
+        onUpdateSettingForImage(name, { width: image.width, height: image.height });
     }
+}
+
+function onUpdateSettingForImage(
+    imageName: string,
+    keyOrObj: ImageSettingKeyType | Partial<ImageSettingsTyped>,
+    value?: any
+) {
+    const current = imageSettings.value[imageName] ?? getDefaultSettings();
+    const newSettings = typeof keyOrObj === 'string' ? { ...current, [keyOrObj]: value } : { ...current, ...keyOrObj };
+    imageSettings.value[imageName] = newSettings;
 }
 
 function onUpdateSetting(keyOrObj: ImageSettingKeyType | Partial<ImageSettingsTyped>, value?: any): void {
-    const img = selectedImage.value;
-    if (!img) {
-        return;
-    }
-
-    const current = currentSettings.value;
-    const newSettings = typeof keyOrObj === 'string' ? { ...current, [keyOrObj]: value } : { ...current, ...keyOrObj };
-    imageSettings.value[img.name] = newSettings;
-}
-
-async function onDetectionMethodChanged(method: DetectionMethodName): Promise<void> {
     if (!selectedImage.value) {
         return;
     }
+    onUpdateSettingForImage(selectedImage.value.name, keyOrObj, value);
+}
 
+async function tryAndDetectColsAndRows(
+    imageData: ImageData,
+    imageName: string,
+    method: DetectionMethodName = 'hybrid'
+): Promise<void> {
+    const result = await detectionMethods[method]({
+        data: imageData.data,
+        width: imageData.width,
+        height: imageData.height,
+    });
+    onUpdateSettingForImage(imageName, { cols: result.cols, rows: result.rows });
+}
+
+async function onDetectionMethodChanged(method: DetectionMethodName = 'hybrid'): Promise<void> {
+    if (!selectedImage.value) {
+        return;
+    }
     const raw = rawImageDataByName.value[selectedImage.value.name];
     if (!raw) {
         return;
     }
-
-    const result = await detectionMethods[method]({
-        data: raw.data,
-        width: raw.width,
-        height: raw.height,
-    });
-    onUpdateSetting({ cols: result.cols, rows: result.rows });
+    tryAndDetectColsAndRows(raw, selectedImage.value.name, method);
 }
 
 const exportFormat = ref<'png' | 'jpeg'>(localStorage.getItem('splicer-format') === 'jpeg' ? 'jpeg' : 'png');
