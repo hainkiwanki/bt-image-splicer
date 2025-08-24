@@ -76,8 +76,6 @@ async function loadFiles(files: File[]): Promise<void> {
                     file,
                     image: img,
                     name: file.name,
-                    width: img.width,
-                    height: img.height,
                 });
                 res();
             };
@@ -107,8 +105,6 @@ async function traverseEntry(entry: any, path = ''): Promise<LoadedImageTyped[]>
             file,
             image: img,
             name: file.name,
-            width: img.width,
-            height: img.height,
             folder: path,
         });
     } else if (entry.isDirectory) {

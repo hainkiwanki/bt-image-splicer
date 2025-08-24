@@ -35,7 +35,7 @@
                                 @update-setting="onUpdateSetting"
                             />
                         </v-col>
-                        <v-col cols="12" md="5" class="pl-md-4 mt-8">
+                        <v-col cols="12" md="5" class="pl-md-4 mt-4">
                             <div class="d-flex flex-column gap-4">
                                 <image-settings
                                     v-if="selectedImage"
@@ -96,20 +96,7 @@
                         </v-col>
                     </v-row>
                 </div>
-                <v-snackbar
-                    v-model="showSnackbar"
-                    color="green"
-                    elevation="8"
-                    location="bottom right"
-                    transition="scale-transition"
-                >
-                    {{ exportSummary }}
-                    <template #actions>
-                        <v-btn icon @click="showSnackbar = false">
-                            <v-icon>mdi-close</v-icon>
-                        </v-btn>
-                    </template>
-                </v-snackbar>
+                <snackbar v-if="snackbarData.show" :data="snackbarData" />
             </v-container>
         </v-main>
     </v-app>
@@ -125,10 +112,19 @@ import ImageSettings from '@/components/ImageSettings.vue';
 import ImageUploader from '@/components/ImageUploader.vue';
 import { type ImageSettingKeyType, type ImageSettingsTyped, getDefaultSettings } from '@/types/imageSettingsTyped.mjs';
 import type { LoadedImageTyped } from '@/types/loadedImageTyped.mjs';
+import { type SnackbarDataTyped } from '@/types/snackbarDataTyped.mjs';
+import { SnackbackMsgType } from '@/types/snackbarMsgTypes.mjs';
 import type { DetectionMethodName } from '@/utils/detection/detectionMethodName.mjs';
 import { detectionMethods } from '@/utils/detection/index.mjs';
 import SlicerWorker from '@/worker/slicer.worker?worker';
 
+import Snackbar from './Snackbar.vue';
+
+const snackbarData = ref<SnackbarDataTyped>({
+    show: false,
+    msg: '',
+    type: SnackbackMsgType.Success,
+});
 const isDoneLoadingImages = ref<boolean>(false);
 const rawImageDataByName = ref<Record<string, ImageData>>({});
 const imageSettings = ref<Record<string, ImageSettingsTyped>>({});
@@ -183,12 +179,23 @@ async function tryAndDetectColsAndRows(
     imageName: string,
     method: DetectionMethodName = 'hybrid'
 ): Promise<void> {
-    const result = await detectionMethods[method]({
-        data: imageData.data,
-        width: imageData.width,
-        height: imageData.height,
-    });
-    onUpdateSettingForImage(imageName, { cols: result.cols, rows: result.rows });
+    try {
+        const result = await detectionMethods[method]({
+            data: imageData.data,
+            width: imageData.width,
+            height: imageData.height,
+        });
+        if (!Number.isFinite(result.cols) || !Number.isFinite(result.rows) || result.cols < 1 || result.rows < 1) {
+            throw new Error('Invalid detection result');
+        }
+        onUpdateSettingForImage(imageName, { cols: result.cols, rows: result.rows });
+    } catch (err) {
+        const errorMsg = `[Automatic Col/Row Error] ${err}`;
+        console.error(errorMsg);
+        snackbarData.value.msg = errorMsg;
+        snackbarData.value.show = true;
+        snackbarData.value.type = SnackbackMsgType.Error;
+    }
 }
 
 async function onDetectionMethodChanged(method: DetectionMethodName = 'hybrid'): Promise<void> {
@@ -210,11 +217,6 @@ const progressBufferValue = ref(0);
 const filenamePrefix = ref<string>('slice');
 const exportOnlySelected = ref<boolean>(false);
 const exportedZipBlob = ref<Blob | null>(null);
-const exportSummary = ref('');
-const showSnackbar = ref(false);
-const zoom = ref(1);
-const offsetX = ref(0);
-const offsetY = ref(0);
 
 async function sliceImage(): Promise<void> {
     if (!loadedImages.value.length) return;
@@ -289,15 +291,14 @@ async function sliceImage(): Promise<void> {
 
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     exportedZipBlob.value = zipBlob;
-    exportSummary.value = `Exported ${totalSlices} slices from ${loadedImages.value.length} image${loadedImages.value.length > 1 ? 's' : ''}.`;
-    showSnackbar.value = true;
+    snackbarData.value.msg = `Exported ${totalSlices} slices from ${loadedImages.value.length} image${loadedImages.value.length > 1 ? 's' : ''}.`;
+    snackbarData.value.show = true;
+    snackbarData.value.type = SnackbackMsgType.Success;
     loading.value = false;
 }
 
 function resetView(): void {
-    zoom.value = 1;
-    offsetX.value = 0;
-    offsetY.value = 0;
+    onUpdateSetting({ zoom: 1, offsetX: 0, offsetY: 0 });
 }
 
 function downloadZip(): void {

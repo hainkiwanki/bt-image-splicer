@@ -1,0 +1,12 @@
+Add error handling for row/col detection 
+Sanitize and clamp incoming cols, rows, format inside worker (currently trusting parent)
+Add error handling for Woker
+Add error + toast/snack to uploading non-images
+Clamp and validate inputs (cols, rows, sprite size, prefix)
+Add sanatizeFilename to handle slashes and other unique characters
+Separating mouse events into composables if logic grows
+Add .number modifiers to numeric inputs (v-model.number) to avoid parsing edge cases
+
+
+Building the readme
+Publishing on Vercel/Netlify

@@ -37,7 +37,7 @@ export const basicEmptySpaceDetection: DetectionMethod = async (imgData): Promis
     }
 
     return {
-        rows: rowStarts.length || 1,
-        cols: colStarts.length || 1,
+        rows: Math.max(1, Math.floor(rowStarts.length || 1)),
+        cols: Math.max(1, Math.floor(colStarts.length || 1)),
     };
 };
