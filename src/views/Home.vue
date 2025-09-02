@@ -1,17 +1,6 @@
 <template>
     <v-app>
-        <v-app-bar flat color="white" elevation="1">
-            <v-container class="d-flex align-center justify-space-between">
-                <div class="d-flex align-center gap-2">
-                    <v-icon class="me-2" icon="mdi-scissors-cutting" size="24" />
-                    <span class="text-body-1 font-weight-medium">Image Splicer</span>
-                </div>
-
-                <v-btn icon variant="text">
-                    <v-icon icon="mdi-help-circle-outline" />
-                </v-btn>
-            </v-container>
-        </v-app-bar>
+        <app-bar></app-bar>
         <v-main>
             <v-container class="mt-5">
                 <div class="text-center mb-12">
@@ -116,6 +105,7 @@ import { type SnackbarDataTyped } from '@/types/snackbarDataTyped.mjs';
 import { SnackbackMsgType } from '@/types/snackbarMsgTypes.mjs';
 import type { DetectionMethodName } from '@/utils/detection/detectionMethodName.mjs';
 import { detectionMethods } from '@/utils/detection/index.mjs';
+import AppBar from '@/views/AppBar.vue';
 import SlicerWorker from '@/worker/slicer.worker?worker';
 
 import Snackbar from './Snackbar.vue';
@@ -266,6 +256,11 @@ async function sliceImage(): Promise<void> {
                         slices: e.data.slices,
                         emptyIndices: e.data.emptyIndices,
                     });
+                }
+                if (e.data.type === 'error') {
+                    snackbarData.value.msg = e.data.message;
+                    snackbarData.value.show = true;
+                    snackbarData.value.type = SnackbackMsgType.Error;
                 }
             };
             worker.postMessage(payload);

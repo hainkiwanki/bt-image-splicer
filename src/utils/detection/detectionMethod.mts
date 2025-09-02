@@ -1,7 +1,7 @@
 import type { DetectionResult } from './detectionResult.mts';
 
 export interface DetectionData {
-    data: ImageDataArray;
+    data: Uint8ClampedArray;
     width: number;
     height: number;
 }

@@ -1,13 +1,14 @@
-export interface SliceRequest {
-    imageData: ImageData;
-    cols: number;
-    rows: number;
-    format: 'png' | 'jpeg';
-}
+import type { SliceRequest } from '@/types/sliceRequestTyped.mjs';
+import { sanitizePayload } from '@/utils/sanitizeSlicePayload.mjs';
 
 self.onmessage = async (e: MessageEvent<SliceRequest>) => {
-    const { imageData, cols, rows, format } = e.data;
+    const { imageData, cols, rows, format } = sanitizePayload(e.data);
     const { width, height } = imageData;
+
+    if (!imageData || !imageData.data) {
+        self.postMessage({ type: 'error', message: 'Invalid image data' });
+        return;
+    }
 
     const area = {
         x: 0,
@@ -43,7 +44,6 @@ self.onmessage = async (e: MessageEvent<SliceRequest>) => {
                     done: count,
                     total,
                 });
-                // await new Promise((r) => setTimeout(r, 1000));
 
                 continue;
             }
@@ -60,7 +60,6 @@ self.onmessage = async (e: MessageEvent<SliceRequest>) => {
                 done: count,
                 total,
             });
-            // await new Promise((r) => setTimeout(r, 1000));
         }
     }
 
