@@ -4,7 +4,7 @@ Clamp and validate inputs (cols, rows, sprite size, prefix)
 Add sanatizeFilename to handle slashes and other unique characters
 Separating mouse events into composables if logic grows
 Add .number modifiers to numeric inputs (v-model.number) to avoid parsing edge cases
-
+Remove SlicePayload and use SliceRequest, maybe rename SliceRequest
 
 Building the readme
 Publishing on Vercel/Netlify
